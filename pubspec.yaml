@@ -1,0 +1,59 @@
+name: media_downloader
+description: 媒体下载器，支持 macOS 与 iPhone。可查看 X 热点、关注账号并下载 X 视频（需系统 VPN/代理）。
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=2.19.6 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.5
+  url_launcher: 6.1.11
+  share_plus: 7.1.0
+  window_manager: ^0.5.1
+  flutter_screenutil: ^5.9.3
+  video_player: ^2.9.2
+  sqlite3: ^3.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+dependency_overrides:
+  win32: ^5.5.1
+
+flutter:
+  uses-material-design: true
+
+
+  fonts:
+    - family: AlibabaPuHuiTi
+      fonts:
+        - asset: assets/fonts/AlibabaPuHuiTi-3-45-Light.ttf
+          weight: 300
+        - asset: assets/fonts/AlibabaPuHuiTi-3-55-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/AlibabaPuHuiTi-3-65-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/AlibabaPuHuiTi-3-75-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/AlibabaPuHuiTi-3-85-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/AlibabaPuHuiTi-3-95-ExtraBold.ttf
+          weight: 800
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true  # 移除iOS图标的透明通道，符合App Store要求
+  image_path: "assets/app.png"
+  # Windows和macOS图标
+  windows:
+    generate: true
+    image_path: "assets/app.png"
+  macos:
+    generate: true
+    image_path: "assets/app.png"
