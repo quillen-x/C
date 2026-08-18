@@ -291,7 +291,7 @@ class _VideoPageState extends State<VideoPage> {
         icon: noCategory ? Icons.tune : Icons.smart_display_outlined,
         title: noCategory ? '还没有打开任何分类' : '暂时没有视频',
         detail: noCategory
-            ? '到「设置 → 关注分类」打开要看的类别。'
+            ? '到「分类」打开要看的类别。'
             : '这里只显示已打开分类里的账号视频。',
       );
     }

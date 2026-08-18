@@ -69,23 +69,36 @@ class AppController extends ChangeNotifier {
     return named.first;
   }
 
-  XAccount taggedForFollow(XAccount account) {
-    return account.copyWith(category: followCategory);
+  XAccount taggedForFollow(XAccount account, {String? category}) {
+    final key = (category ?? followCategory).trim().toLowerCase();
+    return account.copyWith(category: key);
   }
 
-  Future<XAccount> followAndSave(XAccount account) async {
-    final tagged = taggedForFollow(account);
+  Future<XAccount> followAndSave(XAccount account, {String? category}) async {
+    final tagged = taggedForFollow(account, category: category);
+    if (tagged.category.trim().isNotEmpty) {
+      await ensureCategory(tagged.category, show: true);
+    }
     await followXAccount(tagged.username);
     await accountDb.upsert(tagged);
     await accountDb.updateCategory(tagged.username, tagged.category);
     return tagged;
   }
 
-  Future<List<XAccount>> followAndSaveAll(List<XAccount> accounts) async {
+  Future<List<XAccount>> followAndSaveAll(
+    List<XAccount> accounts, {
+    String? category,
+  }) async {
     if (accounts.isEmpty) {
       return <XAccount>[];
     }
-    final tagged = accounts.map(taggedForFollow).toList();
+    final tagged = accounts
+        .map((account) => taggedForFollow(account, category: category))
+        .toList();
+    final cat = tagged.first.category.trim();
+    if (cat.isNotEmpty) {
+      await ensureCategory(cat, show: true);
+    }
     await followXAccounts(
       tagged.map((account) => account.username).toList(),
     );
@@ -94,6 +107,47 @@ class AppController extends ChangeNotifier {
       await accountDb.updateCategory(account.username, account.category);
     }
     return tagged;
+  }
+
+  Future<CategoryAssignResult> addAccountsToCategory(
+    List<XAccount> accounts, {
+    required String category,
+  }) async {
+    final key = category.trim().toLowerCase();
+    if (key.isEmpty) {
+      throw StateError('请选择分类');
+    }
+    await ensureCategory(key, show: true);
+    final following = settings.xFollowing
+        .map((name) => name.trim().toLowerCase())
+        .toSet();
+    final pending = <XAccount>[];
+    final existing = <XAccount>[];
+    final seen = <String>{};
+    for (final account in accounts) {
+      final name = account.username.trim();
+      if (name.isEmpty || !seen.add(name.toLowerCase())) {
+        continue;
+      }
+      final tagged = account.copyWith(category: key);
+      if (following.contains(name.toLowerCase())) {
+        existing.add(tagged);
+      } else {
+        pending.add(tagged);
+      }
+    }
+    if (pending.isNotEmpty) {
+      await followAndSaveAll(pending, category: key);
+    }
+    for (final account in existing) {
+      await accountDb.upsert(account);
+      await accountDb.updateCategory(account.username, account.category);
+    }
+    return CategoryAssignResult(
+      followed: pending.length,
+      updated: existing.length,
+      category: key,
+    );
   }
 
   Future<ProfileSyncResult> syncFollowingProfiles({
@@ -223,7 +277,7 @@ class AppController extends ChangeNotifier {
     return usernames.length;
   }
 
-  Future<void> ensureCategory(String category) async {
+  Future<void> ensureCategory(String category, {bool show = false}) async {
     final key = category.trim().toLowerCase();
     if (key.isEmpty) {
       return;
@@ -231,11 +285,19 @@ class AppController extends ChangeNotifier {
     final exists = settings.categories.any(
       (item) => item.trim().toLowerCase() == key,
     );
-    if (exists) {
+    final shown = settings.visibleCategories.any(
+      (item) => item.trim().toLowerCase() == key,
+    );
+    if (exists && (!show || shown)) {
       return;
     }
     final next = settings.copy();
-    next.categories = <String>[...next.categories, key];
+    if (!exists) {
+      next.categories = <String>[...next.categories, key];
+    }
+    if (show && !shown) {
+      next.visibleCategories = <String>[...next.visibleCategories, key];
+    }
     await saveSettings(next);
   }
 
@@ -365,6 +427,20 @@ class AppController extends ChangeNotifier {
     accountDb.close();
     super.dispose();
   }
+}
+
+class CategoryAssignResult {
+  const CategoryAssignResult({
+    required this.followed,
+    required this.updated,
+    required this.category,
+  });
+
+  final int followed;
+  final int updated;
+  final String category;
+
+  int get total => followed + updated;
 }
 
 class ProfileSyncResult {

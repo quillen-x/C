@@ -150,7 +150,7 @@ class _XFeedPageState extends State<XFeedPage> {
       return const EmptyHint(
         icon: Icons.tune,
         title: '还没有打开任何分类',
-        detail: '到「设置 → 关注分类」打开要看的类别。',
+        detail: '到「分类」打开要看的类别。',
       );
     }
     if (_error != null && _posts.isEmpty) {
@@ -256,7 +256,7 @@ class _XFollowingPageState extends State<XFollowingPage> {
       return '还没有关注';
     }
     if (AppScope.of(context).settings.visibleCategories.isEmpty) {
-      return '到设置打开分类';
+      return '到分类页打开';
     }
     return '当前分类下没有关注';
   }
@@ -1502,10 +1502,46 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
   bool _loadingMore = false;
   int _pages = 0;
   bool _followed = false;
+  bool _busy = false;
+  bool _unfollowed = false;
+  String? _targetCategory;
 
   bool get _hasMore {
     final cursor = _postsCursor;
     return cursor != null && cursor.isNotEmpty && _pages < _maxPostPages;
+  }
+
+  List<String> get _categoryOptions {
+    final keys = <String>{};
+    for (final item in AppScope.of(context).settings.categories) {
+      final key = item.trim().toLowerCase();
+      if (key.isNotEmpty) {
+        keys.add(key);
+      }
+    }
+    final current = (_targetCategory ?? _account.category).trim().toLowerCase();
+    if (current.isNotEmpty) {
+      keys.add(current);
+    }
+    final list = keys.toList()..sort();
+    return list;
+  }
+
+  String? get _effectiveCategory {
+    final selected = _targetCategory?.trim().toLowerCase() ?? '';
+    if (selected.isNotEmpty) {
+      return selected;
+    }
+    final accountCat = _account.category.trim().toLowerCase();
+    if (accountCat.isNotEmpty) {
+      return accountCat;
+    }
+    final follow = AppScope.of(context).followCategory.trim().toLowerCase();
+    if (follow.isNotEmpty) {
+      return follow;
+    }
+    final options = _categoryOptions;
+    return options.isEmpty ? null : options.first;
   }
 
   @override
@@ -1542,16 +1578,22 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
     final cached = await app.accountDb.get(username);
     if (mounted) {
       setState(() {
-        _followed = inSettings || cached != null;
+        _followed = inSettings;
         if (cached != null) {
           _account = cached;
+          final key = cached.category.trim().toLowerCase();
+          if (key.isNotEmpty) {
+            _targetCategory = key;
+          }
         }
       });
     }
     try {
       final profile = await app.xFollowingService.fetchAccount(username);
       if (mounted) {
-        setState(() => _account = profile);
+        setState(() {
+          _account = profile.copyWith(category: _account.category);
+        });
       }
     } catch (_) {}
     try {
@@ -1647,15 +1689,159 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
     );
   }
 
-  Future<void> _unfollow() async {
+  Future<void> _selectCategory(String key) async {
+    if (_busy) {
+      return;
+    }
+    final next = key.trim().toLowerCase();
+    if (next.isEmpty) {
+      return;
+    }
+    setState(() => _targetCategory = next);
+    if (!_followed) {
+      return;
+    }
     final app = AppScope.of(context);
-    await app.unfollowXAccount(widget.account.username);
-    await app.accountDb.delete(widget.account.username);
+    try {
+      await app.accountDb.updateCategory(widget.account.username, next);
+      await app.ensureCategory(next, show: true);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _account = _account.copyWith(category: next));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
+    }
+  }
+
+  Future<void> _promptNewCategory() async {
+    if (_busy) {
+      return;
+    }
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: const Text('新增类别'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            style: const TextStyle(color: AppColors.text),
+            cursorColor: AppColors.accent,
+            decoration: const InputDecoration(
+              hintText: '例如 news',
+              hintStyle: TextStyle(color: AppColors.textMuted),
+            ),
+            onSubmitted: (value) => Navigator.pop(dialogContext, value),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, controller.text),
+              child: const Text('确定'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (result == null || !mounted) {
+      return;
+    }
+    final key = result.trim().toLowerCase();
+    if (key.isEmpty) {
+      showAppSnack(context, '请输入分类名', error: true);
+      return;
+    }
+    await AppScope.of(context).ensureCategory(key);
     if (!mounted) {
       return;
     }
-    showAppSnack(context, '已取消关注 @${widget.account.username}');
-    Navigator.of(context).pop(true);
+    await _selectCategory(key);
+  }
+
+  Future<void> _followSelf() async {
+    if (_busy || _followed) {
+      return;
+    }
+    var category = _effectiveCategory;
+    if (category == null || category.isEmpty) {
+      await _promptNewCategory();
+      if (!mounted) {
+        return;
+      }
+      category = _targetCategory;
+      if (category == null || category.isEmpty) {
+        return;
+      }
+    }
+    setState(() => _busy = true);
+    try {
+      final saved = await AppScope.of(context).followAndSave(
+        _account,
+        category: category,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _followed = true;
+        _unfollowed = false;
+        _account = saved;
+        _targetCategory = saved.categoryKey;
+      });
+      showAppSnack(
+        context,
+        '已关注 @${saved.username}，已加入「${XAccount.categoryLabel(saved.category)}」',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _unfollow() async {
+    if (_busy || !_followed) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final app = AppScope.of(context);
+      await app.unfollowXAccount(widget.account.username);
+      await app.accountDb.delete(widget.account.username);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _followed = false;
+        _unfollowed = true;
+        _account = _account.copyWith(category: '');
+      });
+      showAppSnack(context, '已取消关注 @${widget.account.username}');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
   }
 
   Future<void> _openFollowing() async {
@@ -1723,14 +1909,22 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final compact = AppLayout.isCompact(context);
-    return Dialog(
-      backgroundColor: AppColors.surface,
-      insetPadding: EdgeInsets.symmetric(
-        horizontal: compact ? 24.w : 80.w,
-        vertical: compact ? 12.h : 16.h,
-      ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.w)),
-      child: ConstrainedBox(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          return;
+        }
+        Navigator.of(context).pop(_unfollowed);
+      },
+      child: Dialog(
+        backgroundColor: AppColors.surface,
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: compact ? 24.w : 80.w,
+          vertical: compact ? 12.h : 16.h,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.w)),
+        child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 420.w,
           maxHeight: size.height * 0.94,
@@ -1760,20 +1954,8 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
                       ),
                     ),
                   ),
-                  if (_followed)
-                    TextButton(
-                      onPressed: _unfollow,
-                      child: Text(
-                        '取消关注',
-                        style: TextStyle(
-                          color: AppColors.danger,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13.sp,
-                        ),
-                      ),
-                    ),
                   IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () => Navigator.of(context).pop(_unfollowed),
                     icon: Icon(Icons.close, color: AppColors.textMuted),
                   ),
                 ],
@@ -1784,6 +1966,7 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
               onOpenFollowers: () => _openFollowers(),
               onOpenFollowing: () => _openFollowing(),
             ),
+            _followBar(),
             Divider(height: 1.h, color: AppColors.border),
             Expanded(
               child: _loadingPosts
@@ -1826,6 +2009,107 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
                         ),
             ),
           ],
+        ),
+      ),
+      ),
+    );
+  }
+
+  Widget _followBar() {
+    final selected = _effectiveCategory;
+    final options = _categoryOptions;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16.w, 0, 8.w, 12.h),
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final key in options) ...[
+                    _chip(
+                      label: XAccount.categoryLabel(key),
+                      selected: selected == key,
+                      onTap: () => _selectCategory(key),
+                    ),
+                    SizedBox(width: 6.w),
+                  ],
+                  _chip(
+                    label: '+ 新增',
+                    selected: false,
+                    onTap: _promptNewCategory,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(width: 4.w),
+          if (_busy)
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12.w),
+              child: SizedBox(
+                width: 16.w,
+                height: 16.w,
+                child: CircularProgressIndicator(strokeWidth: 2.w),
+              ),
+            )
+          else if (_followed)
+            TextButton(
+              onPressed: _unfollow,
+              child: Text(
+                '取消关注',
+                style: TextStyle(
+                  color: AppColors.danger,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13.sp,
+                ),
+              ),
+            )
+          else
+            TextButton(
+              onPressed: _followSelf,
+              child: Text(
+                '关注',
+                style: TextStyle(
+                  color: AppColors.accent,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13.sp,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: selected ? AppColors.x : Colors.transparent,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: _busy ? null : onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: SizedBox(
+          height: 28.h,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 10.w),
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.sp,
+                  height: 1.1,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? Colors.black : AppColors.textMuted,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

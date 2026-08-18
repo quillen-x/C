@@ -7,6 +7,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'app_controller.dart';
 import 'models.dart';
+import 'screens/categories_page.dart';
 import 'screens/downloads_page.dart';
 import 'screens/settings_page.dart';
 import 'screens/video_page.dart';
@@ -164,6 +165,8 @@ class _RootState extends State<_Root> {
         return VideoPage(key: key);
       case AppPage.downloads:
         return DownloadsPage(key: key);
+      case AppPage.categories:
+        return CategoriesPage(key: key);
       case AppPage.settings:
         return SettingsPage(key: key);
     }

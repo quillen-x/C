@@ -61,8 +61,39 @@ class _XSearchPageState extends State<XSearchPage> {
   bool _usersLoadingMore = false;
   bool _postsSearched = false;
   bool _usersSearched = false;
+  bool _assigning = false;
+  String? _targetCategory;
 
   bool get _searchUsers => _kind == 'users';
+
+  List<String> get _categoryOptions {
+    final keys = <String>{};
+    for (final item in AppScope.of(context).settings.categories) {
+      final key = item.trim().toLowerCase();
+      if (key.isNotEmpty) {
+        keys.add(key);
+      }
+    }
+    final selected = _targetCategory?.trim().toLowerCase() ?? '';
+    if (selected.isNotEmpty) {
+      keys.add(selected);
+    }
+    final list = keys.toList()..sort();
+    return list;
+  }
+
+  String? get _effectiveCategory {
+    final selected = _targetCategory?.trim().toLowerCase() ?? '';
+    if (selected.isNotEmpty) {
+      return selected;
+    }
+    final follow = AppScope.of(context).followCategory.trim().toLowerCase();
+    if (follow.isNotEmpty) {
+      return follow;
+    }
+    final options = _categoryOptions;
+    return options.isEmpty ? null : options.first;
+  }
 
   bool get _hasMorePosts {
     final cursor = _postsCursor;
@@ -254,16 +285,123 @@ class _XSearchPageState extends State<XSearchPage> {
   Future<void> _followUser(XAccount account) async {
     final app = AppScope.of(context);
     try {
-      await app.followAndSave(account);
+      final saved = await app.followAndSave(
+        account,
+        category: _effectiveCategory,
+      );
       if (!mounted) {
         return;
       }
-      showAppSnack(context, '已关注 @${account.username}');
+      showAppSnack(
+        context,
+        '已关注 @${saved.username}，已加入「${XAccount.categoryLabel(saved.category)}」',
+      );
     } catch (error) {
       if (!mounted) {
         return;
       }
       showAppSnack(context, error.toString(), error: true);
+    }
+  }
+
+  Future<void> _promptNewCategory() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: const Text('新增类别'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            style: const TextStyle(color: AppColors.text),
+            cursorColor: AppColors.accent,
+            decoration: const InputDecoration(
+              hintText: '例如 news',
+              hintStyle: TextStyle(color: AppColors.textMuted),
+            ),
+            onSubmitted: (value) => Navigator.pop(dialogContext, value),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, controller.text),
+              child: const Text('确定'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (result == null || !mounted) {
+      return;
+    }
+    final key = result.trim().toLowerCase();
+    if (key.isEmpty) {
+      showAppSnack(context, '请输入分类名', error: true);
+      return;
+    }
+    await AppScope.of(context).ensureCategory(key);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _targetCategory = key);
+  }
+
+  Future<void> _addUsersToCategory() async {
+    if (_assigning || _users.isEmpty) {
+      return;
+    }
+    var category = _effectiveCategory;
+    if (category == null || category.isEmpty) {
+      await _promptNewCategory();
+      if (!mounted) {
+        return;
+      }
+      category = _targetCategory;
+      if (category == null || category.isEmpty) {
+        return;
+      }
+    }
+    setState(() => _assigning = true);
+    try {
+      final result = await AppScope.of(context).addAccountsToCategory(
+        _users,
+        category: category,
+      );
+      if (!mounted) {
+        return;
+      }
+      final label = XAccount.categoryLabel(result.category);
+      if (result.total == 0) {
+        showAppSnack(context, '没有可加入的成员');
+        return;
+      }
+      if (result.followed == 0) {
+        showAppSnack(context, '已将 ${result.updated} 人归入「$label」');
+        return;
+      }
+      if (result.updated == 0) {
+        showAppSnack(context, '已关注 ${result.followed} 人，已加入「$label」');
+        return;
+      }
+      showAppSnack(
+        context,
+        '已将 ${result.total} 人加入「$label」（新增关注 ${result.followed}）',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _assigning = false);
+      }
     }
   }
 
@@ -522,98 +660,155 @@ class _XSearchPageState extends State<XSearchPage> {
         .xFollowing
         .map((name) => name.toLowerCase())
         .toSet();
-    final padding = _searchInset(top: 8, bottom: widget.dialog ? 16 : 28);
+    final padding = _searchInset(top: 8, bottom: 8);
     final footer = _usersLoadingMore || _hasMoreUsers;
-    return ListView.separated(
-      controller: _usersScroll,
-      padding: padding,
-      itemCount: _users.length + (footer ? 1 : 0),
-      separatorBuilder: (context, index) {
-        if (index >= _users.length - 1) {
-          return const SizedBox.shrink();
-        }
-        return Divider(height: 1.h, color: AppColors.border);
-      },
-      itemBuilder: (context, index) {
-        if (index >= _users.length) {
-          return Padding(
-            padding: EdgeInsets.fromLTRB(0, 12.h, 0, 8.h),
-            child: Center(
-              child: _usersLoadingMore
-                  ? SizedBox(
-                      width: 20.w,
-                      height: 20.w,
-                      child: CircularProgressIndicator(strokeWidth: 2.w),
-                    )
-                  : GhostButton(
-                      label: '加载更多',
-                      icon: Icons.expand_more,
-                      onPressed: () => _search(more: true),
-                    ),
-            ),
-          );
-        }
-        final account = _users[index];
-        final already = followed.contains(account.username.toLowerCase());
-        return InkWell(
-          onTap: () => showAccountHome(context, account),
-          child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 10.h),
-            child: Row(
-              children: [
-                XAvatar(url: account.avatarUrl, size: 44),
-                SizedBox(width: 12.w),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.separated(
+            controller: _usersScroll,
+            padding: padding,
+            itemCount: _users.length + (footer ? 1 : 0),
+            separatorBuilder: (context, index) {
+              if (index >= _users.length - 1) {
+                return const SizedBox.shrink();
+              }
+              return Divider(height: 1.h, color: AppColors.border);
+            },
+            itemBuilder: (context, index) {
+              if (index >= _users.length) {
+                return Padding(
+                  padding: EdgeInsets.fromLTRB(0, 12.h, 0, 8.h),
+                  child: Center(
+                    child: _usersLoadingMore
+                        ? SizedBox(
+                            width: 20.w,
+                            height: 20.w,
+                            child: CircularProgressIndicator(strokeWidth: 2.w),
+                          )
+                        : GhostButton(
+                            label: '加载更多',
+                            icon: Icons.expand_more,
+                            onPressed: () => _search(more: true),
+                          ),
+                  ),
+                );
+              }
+              final account = _users[index];
+              final already = followed.contains(account.username.toLowerCase());
+              return InkWell(
+                onTap: () => showAccountHome(context, account),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10.h),
+                  child: Row(
                     children: [
-                      Text(
-                        account.name.trim().isEmpty
-                            ? account.username
-                            : account.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14.sp,
+                      XAvatar(url: account.avatarUrl, size: 44),
+                      SizedBox(width: 12.w),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              account.name.trim().isEmpty
+                                  ? account.username
+                                  : account.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14.sp,
+                              ),
+                            ),
+                            Text(
+                              '@${account.username}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppColors.textMuted,
+                                fontSize: 12.sp,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      Text(
-                        '@${account.username}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 12.sp,
-                        ),
-                      ),
+                      already
+                          ? Text(
+                              '已关注',
+                              style: TextStyle(
+                                color: AppColors.textMuted,
+                                fontSize: 12.sp,
+                              ),
+                            )
+                          : TextButton(
+                              onPressed: () => _followUser(account),
+                              child: Text(
+                                '关注',
+                                style: TextStyle(
+                                  color: AppColors.accent,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13.sp,
+                                ),
+                              ),
+                            ),
                     ],
                   ),
                 ),
-                already
-                    ? Text(
-                        '已关注',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 12.sp,
-                        ),
-                      )
-                    : TextButton(
-                        onPressed: () => _followUser(account),
-                        child: Text(
-                          '关注',
-                          style: TextStyle(
-                            color: AppColors.accent,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13.sp,
-                          ),
-                        ),
-                      ),
-              ],
+              );
+            },
+          ),
+        ),
+        _buildCategoryBar(),
+      ],
+    );
+  }
+
+  Widget _buildCategoryBar() {
+    final selected = _effectiveCategory;
+    final options = _categoryOptions;
+    return Container(
+      padding: EdgeInsets.fromLTRB(12.w, 8.h, 12.w, widget.dialog ? 12.h : 10.h),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final key in options) ...[
+                    _chip(
+                      label: XAccount.categoryLabel(key),
+                      selected: selected == key,
+                      height: 28,
+                      onTap: () {
+                        setState(() => _targetCategory = key);
+                      },
+                    ),
+                    SizedBox(width: 6.w),
+                  ],
+                  _chip(
+                    label: '+ 新增',
+                    selected: false,
+                    height: 28,
+                    onTap: _promptNewCategory,
+                  ),
+                ],
+              ),
             ),
           ),
-        );
-      },
+          SizedBox(width: 8.w),
+          PrimaryButton(
+            label: '加入 ${_users.length} 人',
+            icon: Icons.playlist_add,
+            compact: true,
+            busy: _assigning,
+            onPressed: _assigning ? null : _addUsersToCategory,
+          ),
+        ],
+      ),
     );
   }
 }

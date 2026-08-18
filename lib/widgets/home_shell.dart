@@ -95,10 +95,12 @@ class _BottomNav extends StatelessWidget {
         return 2;
       case AppPage.search:
         return 3;
+      case AppPage.categories:
+        return 4;
       case AppPage.downloads:
       case AppPage.settings:
       case AppPage.x:
-        return 4;
+        return 5;
     }
   }
 
@@ -127,6 +129,9 @@ class _BottomNav extends StatelessWidget {
             onSelect(AppPage.search);
             break;
           case 4:
+            onSelect(AppPage.categories);
+            break;
+          case 5:
             onSelect(AppPage.downloads);
             break;
         }
@@ -151,6 +156,11 @@ class _BottomNav extends StatelessWidget {
           icon: Icon(Icons.search_outlined),
           activeIcon: Icon(Icons.search),
           label: '搜索',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.category_outlined),
+          activeIcon: Icon(Icons.category),
+          label: '分类',
         ),
         BottomNavigationBarItem(
           icon: activeCount > 0
@@ -248,6 +258,13 @@ class _Sidebar extends StatelessWidget {
             ),
           ),
           SizedBox(height: 10.h),
+          _NavItem(
+            icon: Icons.category_outlined,
+            label: '分类',
+            selected: page == AppPage.categories,
+            color: AppColors.accent,
+            onTap: () => onSelect(AppPage.categories),
+          ),
           _NavItem(
             icon: Icons.settings_outlined,
             label: '设置与代理',

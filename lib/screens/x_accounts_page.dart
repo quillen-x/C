@@ -308,8 +308,8 @@ class _XAccountsPageState extends State<XAccountsPage> {
         icon: Icons.search_off,
         title: enabled.isEmpty ? '还没有打开任何分类' : '没有匹配的记录',
         detail: enabled.isEmpty
-            ? '到「设置 → 关注分类」打开要展示的类别。'
-            : '换个关键词再试，或到设置里打开更多分类。',
+            ? '到「分类」打开要展示的类别。'
+            : '换个关键词再试，或到分类页打开更多分类。',
       );
     }
     final padding = AppLayout.pagePadding(context, bottom: 16);

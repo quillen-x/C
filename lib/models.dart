@@ -6,6 +6,7 @@ enum AppPage {
   search,
   x,
   downloads,
+  categories,
   settings,
 }
 

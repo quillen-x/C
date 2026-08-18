@@ -130,7 +130,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
       return const EmptyHint(
         icon: Icons.tune,
         title: '还没有打开任何分类',
-        detail: '到「设置 → 关注分类」打开要看的类别。',
+        detail: '到「分类」打开要看的类别。',
       );
     }
     if (_error != null && _photos.isEmpty) {
