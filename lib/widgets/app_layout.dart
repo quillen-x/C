@@ -18,8 +18,8 @@ class AppLayout {
 
   static EdgeInsets headerPadding(BuildContext context) {
     return isCompact(context)
-        ? EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 8.h)
-        : EdgeInsets.fromLTRB(28.w, 22.h, 28.w, 12.h);
+        ? EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 8.h)
+        : EdgeInsets.fromLTRB(28.w, 8.h, 28.w, 12.h);
   }
 
   static EdgeInsets pagePadding(

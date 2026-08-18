@@ -34,6 +34,7 @@ class AppTextField extends StatelessWidget {
     this.prefixIcon,
     this.suffix,
     this.obscureText = false,
+    this.isDense = false,
     this.contentPadding,
   });
 
@@ -43,6 +44,7 @@ class AppTextField extends StatelessWidget {
   final IconData? prefixIcon;
   final Widget? suffix;
   final bool obscureText;
+  final bool isDense;
   final EdgeInsetsGeometry? contentPadding;
 
   @override
@@ -56,9 +58,16 @@ class AppTextField extends StatelessWidget {
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 14.sp),
+        isDense: isDense,
         prefixIcon: prefixIcon == null
             ? null
-            : Icon(prefixIcon, color: AppColors.textMuted, size: 20.w),
+            : Icon(prefixIcon, color: AppColors.textMuted, size: isDense ? 18.w : 20.w),
+        prefixIconConstraints: prefixIcon == null
+            ? null
+            : BoxConstraints(
+                minWidth: isDense ? 36.w : 48.w,
+                minHeight: isDense ? 32.h : 48.h,
+              ),
         suffixIcon: suffix == null
             ? null
             : Padding(
@@ -71,7 +80,7 @@ class AppTextField extends StatelessWidget {
         filled: true,
         fillColor: AppColors.surfaceAlt,
         contentPadding: contentPadding ??
-            EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+            EdgeInsets.symmetric(horizontal: 14.w, vertical: isDense ? 8.h : 12.h),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12.w),
           borderSide: BorderSide(color: AppColors.border),
@@ -97,6 +106,7 @@ class PrimaryButton extends StatelessWidget {
     this.icon,
     this.color,
     this.busy = false,
+    this.compact = false,
   });
 
   final String label;
@@ -104,6 +114,7 @@ class PrimaryButton extends StatelessWidget {
   final IconData? icon;
   final Color? color;
   final bool busy;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -112,9 +123,15 @@ class PrimaryButton extends StatelessWidget {
       backgroundColor: background,
       foregroundColor: Colors.black,
       disabledBackgroundColor: background.withValues(alpha: 0.4),
-      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+      minimumSize: compact ? Size(0, 32.h) : null,
+      tapTargetSize: compact ? MaterialTapTargetSize.shrinkWrap : null,
+      visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 12.w : 16.w,
+        vertical: compact ? 6.h : 12.h,
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.w)),
-      textStyle: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.sp),
+      textStyle: TextStyle(fontWeight: FontWeight.w700, fontSize: compact ? 12.sp : 13.sp),
     );
     if (icon == null && !busy) {
       return ElevatedButton(

@@ -232,13 +232,23 @@ class _XFollowingPageState extends State<XFollowingPage> {
 
   List<String> get _visibleFollowing {
     final app = AppScope.of(context);
-    return _following.where((name) {
+    final names = _following.where((name) {
       final account = _profiles[name.toLowerCase()];
       if (account == null) {
         return app.settings.showsCategory('');
       }
       return app.showsAccount(account);
     }).toList();
+    names.sort((a, b) {
+      final followersA = _profiles[a.toLowerCase()]?.followers ?? 0;
+      final followersB = _profiles[b.toLowerCase()]?.followers ?? 0;
+      final byFollowers = followersB.compareTo(followersA);
+      if (byFollowers != 0) {
+        return byFollowers;
+      }
+      return a.toLowerCase().compareTo(b.toLowerCase());
+    });
+    return names;
   }
 
   String get _accountListEmptyHint {
@@ -687,7 +697,7 @@ class _XFollowingPageState extends State<XFollowingPage> {
                 : Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(width: 260.w,
+                      SizedBox(width: 250.w,
                         child: _AccountList(
                           names: names,
                           selected: _selected,
@@ -702,7 +712,7 @@ class _XFollowingPageState extends State<XFollowingPage> {
                         ),
                       ),
                       SizedBox(width: 12.w),
-                      Expanded(
+                      Expanded( 
                         child: _DetailPane(
                           account: _selected == null
                               ? null
@@ -886,19 +896,6 @@ class _AccountList extends StatelessWidget {
                                       borderRadius: BorderRadius.circular(2.w),
                                     ),
                                   ),
-                                  SizedBox(width: 6.w),
-                                  SizedBox(
-                                    width: 20.w,
-                                    child: Text(
-                                      '${index + 1}',
-                                      textAlign: TextAlign.left,
-                                      style: TextStyle(
-                                        color: isSelected ? AppColors.accent : AppColors.textMuted,
-                                        fontSize: 11.sp,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
                                   SizedBox(width: 8.w),
                                   XAvatar(url: account?.avatarUrl ?? '', size: 28),
                                   SizedBox(width: 8.w),
@@ -1034,6 +1031,8 @@ class _DetailPane extends StatelessWidget {
                           loadingMore: loadingMore,
                           hasMore: hasMore,
                           onDownload: onDownload,
+                          textSize: 13.sp,
+                          textWeight: FontWeight.w300,
                         ),
                       ),
           ),
@@ -1100,7 +1099,7 @@ class _FollowingListDialogState extends State<_FollowingListDialog> {
     _followed = List<String>.from(widget.followed);
     final existing = widget.accounts;
     if (existing != null) {
-      _accounts = existing;
+      _accounts = _sortedByFollowers(existing);
       if (_accounts.isEmpty) {
         _error = '暂时无法加载${widget.title}';
       }
@@ -1117,7 +1116,7 @@ class _FollowingListDialogState extends State<_FollowingListDialog> {
         return;
       }
       setState(() {
-        _accounts = accounts;
+        _accounts = _sortedByFollowers(accounts);
         _loading = false;
         _error = accounts.isEmpty ? '暂时无法加载${widget.title}' : null;
       });
@@ -1130,6 +1129,17 @@ class _FollowingListDialogState extends State<_FollowingListDialog> {
         _error = error.toString();
       });
     }
+  }
+
+  List<XAccount> _sortedByFollowers(List<XAccount> accounts) {
+    return List<XAccount>.from(accounts)
+      ..sort((a, b) {
+        final byFollowers = b.followers.compareTo(a.followers);
+        if (byFollowers != 0) {
+          return byFollowers;
+        }
+        return a.username.toLowerCase().compareTo(b.username.toLowerCase());
+      });
   }
 
   bool _isFollowed(String username) {
@@ -1809,6 +1819,8 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
                               post: _posts[index],
                               onDownload: _downloadPost,
                               onTap: () => showPostComments(context, _posts[index]),
+                              textSize: 15.sp,
+                              textWeight: FontWeight.w300,
                             );
                           },
                         ),

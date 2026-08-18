@@ -69,18 +69,7 @@ class HomeShell extends StatelessWidget {
     if (!Platform.isMacOS) {
       return SafeArea(child: desktopBody);
     }
-    return Column(
-      children: [
-        DragToMoveArea(
-          child: SizedBox(
-            height: 32.h,
-            width: double.infinity,
-            child: const ColoredBox(color: AppColors.sidebar),
-          ),
-        ),
-        Expanded(child: desktopBody),
-      ],
-    );
+    return desktopBody;
   }
 }
 
@@ -199,10 +188,14 @@ class _Sidebar extends StatelessWidget {
     return Container(
       width: 180.w,
       color: AppColors.sidebar,
-      padding: EdgeInsets.fromLTRB(16.w, 0.h, 16.w, 16.h),
+      padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 16.h),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (Platform.isMacOS)
+            const DragToMoveArea(
+              child: SizedBox(height: 28, width: double.infinity),
+            ),
           _NavItem(
             icon: Icons.search,
             label: '搜索',
@@ -361,23 +354,26 @@ class PageHeader extends StatelessWidget {
         ),
       ],
     );
+    final header = compact && trailing != null
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              text,
+              SizedBox(height: 12.h),
+              trailing!,
+            ],
+          )
+        : Row(
+            children: [
+              Expanded(
+                child: Platform.isMacOS ? DragToMoveArea(child: text) : text,
+              ),
+              if (trailing != null) trailing!,
+            ],
+          );
     return Padding(
       padding: AppLayout.headerPadding(context),
-      child: compact && trailing != null
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                text,
-                SizedBox(height: 12.h),
-                trailing!,
-              ],
-            )
-          : Row(
-              children: [
-                Expanded(child: text),
-                if (trailing != null) trailing!,
-              ],
-            ),
+      child: header,
     );
   }
 }

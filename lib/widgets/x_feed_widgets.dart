@@ -153,23 +153,6 @@ class _CommentsDialogState extends State<_CommentsDialog> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(16.w, 10.h, 8.w, 4.h),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '帖子',
-                      style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, color: AppColors.textMuted),
-                  ),
-                ],
-              ),
-            ),
             Expanded(child: _buildBody()),
           ],
         ),
@@ -180,7 +163,7 @@ class _CommentsDialogState extends State<_CommentsDialog> {
   Widget _originalPost() {
     final post = widget.post;
     return Padding(
-      padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 12.h),
+      padding: EdgeInsets.fromLTRB(16.w, 16.h, 8.w, 12.h),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -206,6 +189,10 @@ class _CommentsDialogState extends State<_CommentsDialog> {
                     ),
                   ],
                 ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close, color: AppColors.textMuted),
               ),
             ],
           ),
@@ -252,15 +239,6 @@ class _CommentsDialogState extends State<_CommentsDialog> {
       slivers: [
         SliverToBoxAdapter(child: _originalPost()),
         SliverToBoxAdapter(child: Divider(height: 1.h, color: AppColors.border)),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 8.h),
-            child: Text(
-              '评论',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.sp),
-            ),
-          ),
-        ),
         if (_loading && _replies.isEmpty)
           const SliverFillRemaining(
             hasScrollBody: false,
@@ -287,7 +265,7 @@ class _CommentsDialogState extends State<_CommentsDialog> {
           )
         else
           SliverPadding(
-            padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 20.h),
+            padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 20.h),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
@@ -407,6 +385,8 @@ class PostWaterfall extends StatelessWidget {
     this.columns = 3,
     this.showAuthor = false,
     this.padding,
+    this.textSize,
+    this.textWeight,
   });
 
   final int columns;
@@ -417,6 +397,8 @@ class PostWaterfall extends StatelessWidget {
   final bool hasMore;
   final ValueChanged<XPost> onDownload;
   final EdgeInsets? padding;
+  final double? textSize;
+  final FontWeight? textWeight;
 
   @override
   Widget build(BuildContext context) {
@@ -447,6 +429,8 @@ class PostWaterfall extends StatelessWidget {
                               post: post,
                               dense: true,
                               showAuthor: showAuthor,
+                              textSize: textSize,
+                              textWeight: textWeight,
                               onDownload: onDownload,
                               onTap: () => showPostComments(context, post),
                             ),
@@ -489,6 +473,8 @@ class PostCard extends StatefulWidget {
     this.onTap,
     this.showAuthor = false,
     this.dense = false,
+    this.textSize,
+    this.textWeight,
   });
 
   final XPost post;
@@ -498,6 +484,8 @@ class PostCard extends StatefulWidget {
   final VoidCallback? onTap;
   final bool showAuthor;
   final bool dense;
+  final double? textSize;
+  final FontWeight? textWeight;
 
   @override
   State<PostCard> createState() => _PostCardState();
@@ -614,9 +602,11 @@ class _PostCardState extends State<PostCard> {
   }
 
   Widget _bodyText(String value, {bool muted = false, int? maxLines}) {
+    final size = widget.textSize ?? (dense ? 12.sp : 14.sp);
     final style = TextStyle(
       height: 1.45,
-      fontSize: muted ? (dense ? 11.sp : 12.sp) : (dense ? 12.sp : 14.sp),
+      fontSize: muted ? size - 1.sp : size,
+      fontWeight: widget.textWeight ?? FontWeight.w400,
       color: muted ? AppColors.textMuted : null,
     );
     return _RichPostText(
@@ -759,7 +749,8 @@ class _RichPostTextState extends State<_RichPostText> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.text != widget.text ||
         oldWidget.style.color != widget.style.color ||
-        oldWidget.style.fontSize != widget.style.fontSize) {
+        oldWidget.style.fontSize != widget.style.fontSize ||
+        oldWidget.style.fontWeight != widget.style.fontWeight) {
       _spanCache = null;
     }
   }

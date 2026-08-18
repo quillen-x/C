@@ -311,49 +311,8 @@ class _XSearchPageState extends State<XSearchPage> {
         else
           const SizedBox.shrink(),
         Padding(
-          padding: _searchInset(top: widget.dialog ? 0 : 8, bottom: 8),
-          child: AppTextField(
-            controller: _query,
-            hint: _searchUsers ? '名字或 @用户名' : '关键词、#话题 或 @用户',
-            prefixIcon: Icons.search,
-            onSubmitted: (_) => _search(),
-            suffix: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final kind in _kinds) ...[
-                  _chip(
-                    label: kind.label,
-                    selected: _kind == kind.id,
-                    onTap: () => _switchKind(kind.id),
-                  ),
-                  SizedBox(width: 6.w),
-                ],
-                if (!_searchUsers) ...[
-                  SizedBox(width: 2.w),
-                  for (final feed in _feeds) ...[
-                    _chip(
-                      label: feed.label,
-                      selected: _feed == feed.id,
-                      onTap: () {
-                        if (_feed == feed.id) {
-                          return;
-                        }
-                        setState(() => _feed = feed.id);
-                        _search();
-                      },
-                    ),
-                    SizedBox(width: 6.w),
-                  ],
-                ],
-                PrimaryButton(
-                  label: '搜索',
-                  color: AppColors.x,
-                  busy: _searchUsers ? _usersLoading : _postsLoading,
-                  onPressed: () => _search(),
-                ),
-              ],
-            ),
-          ),
+          padding: _searchInset(top: widget.dialog ? 0 : 16, bottom: 8),
+          child: _searchBar(),
         ),
         if (widget.dialog) Divider(height: 1.h, color: AppColors.border),
         Expanded(
@@ -373,25 +332,133 @@ class _XSearchPageState extends State<XSearchPage> {
     return EdgeInsets.fromLTRB(12.w, top.h, 12.w, bottom.h);
   }
 
+  Widget _searchBar() {
+    const barHeight = 40.0;
+    const actionHeight = 28.0;
+    return Container(
+      height: barHeight.h,
+      padding: EdgeInsets.fromLTRB(10.w, 0, 6.w, 0),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(12.w),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.search, color: AppColors.textMuted, size: 18.w),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: TextField(
+              controller: _query,
+              style: TextStyle(color: AppColors.text, fontSize: 14.sp, height: 1.2),
+              cursorColor: AppColors.accent,
+              textAlignVertical: TextAlignVertical.center,
+              onSubmitted: (_) => _search(),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: _searchUsers ? '名字或 @用户名' : '关键词、#话题 或 @用户',
+                hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 14.sp, height: 1.2),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: EdgeInsets.only(bottom: 4.h),
+              ),
+            ),
+          ),
+          SizedBox(width: 8.w),
+          for (final kind in _kinds) ...[
+            _chip(
+              label: kind.label,
+              selected: _kind == kind.id,
+              height: actionHeight,
+              onTap: () => _switchKind(kind.id),
+            ),
+            SizedBox(width: 6.w),
+          ],
+          if (!_searchUsers) ...[
+            for (final feed in _feeds) ...[
+              _chip(
+                label: feed.label,
+                selected: _feed == feed.id,
+                height: actionHeight,
+                onTap: () {
+                  if (_feed == feed.id) {
+                    return;
+                  }
+                  setState(() => _feed = feed.id);
+                  _search();
+                },
+              ),
+              SizedBox(width: 6.w),
+            ],
+          ],
+          _searchAction(height: actionHeight),
+        ],
+      ),
+    );
+  }
+
   Widget _chip({
     required String label,
     required bool selected,
+    required double height,
     required VoidCallback onTap,
   }) {
     return Material(
-      color: selected ? AppColors.x : AppColors.surface,
-      borderRadius: BorderRadius.circular(12.w),
+      color: selected ? AppColors.x : Colors.transparent,
+      borderRadius: BorderRadius.circular(999),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12.w),
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12.sp,
-              fontWeight: FontWeight.w700,
-              color: selected ? Colors.black : AppColors.textMuted,
+        borderRadius: BorderRadius.circular(999),
+        child: SizedBox(
+          height: height.h,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 10.w),
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.sp,
+                  height: 1.1,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? Colors.black : AppColors.textMuted,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _searchAction({required double height}) {
+    final busy = _searchUsers ? _usersLoading : _postsLoading;
+    return Material(
+      color: AppColors.x,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: busy ? null : () => _search(),
+        borderRadius: BorderRadius.circular(999),
+        child: SizedBox(
+          height: height.h,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12.w),
+            child: Center(
+              child: busy
+                  ? SizedBox(
+                      width: 14.w,
+                      height: 14.w,
+                      child: CircularProgressIndicator(strokeWidth: 2.w, color: Colors.black),
+                    )
+                  : Text(
+                      '搜索',
+                      style: TextStyle(
+                        fontSize: 12.sp,
+                        height: 1.1,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black,
+                      ),
+                    ),
             ),
           ),
         ),
