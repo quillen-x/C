@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../models.dart';
 import '../services/account_db.dart';
+import '../services/category_excel.dart';
 import '../services/io_helpers.dart';
 import '../theme.dart';
 import '../widgets/app_layout.dart';
@@ -32,6 +33,7 @@ class _SettingsPageState extends State<SettingsPage> {
   List<String> _categories = <String>[];
   bool _categoriesVisible = false;
   String? _syncingCategory;
+  String? _exportingCategory;
   bool _syncCancel = false;
   int _syncDone = 0;
   int _syncTotal = 0;
@@ -151,6 +153,61 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
     await _loadCategories();
+  }
+
+  Future<List<XAccount>> _followedInCategory(String category) async {
+    final app = AppScope.of(context);
+    final key = category.trim().toLowerCase();
+    final followed = app.settings.xFollowing
+        .map((name) => name.toLowerCase())
+        .toSet();
+    return (await app.accountDb.loadAll()).where((account) {
+      if (account.categoryKey != key) {
+        return false;
+      }
+      return followed.contains(account.username.toLowerCase());
+    }).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  }
+
+  Future<void> _exportCategory(String category) async {
+    if (_exportingCategory != null || _purging || _syncingCategory != null) {
+      return;
+    }
+    final label = XAccount.categoryLabel(category);
+    setState(() => _exportingCategory = category);
+    try {
+      final rows = await _followedInCategory(category);
+      if (!mounted) {
+        return;
+      }
+      if (rows.isEmpty) {
+        showAppSnack(context, '「$label」里没有关注人');
+        return;
+      }
+      await CategoryExcel.export(
+        accounts: rows,
+        categoryLabel: label,
+      );
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(
+        context,
+        AppLayout.isIOS
+            ? '已导出「$label」${rows.length} 人'
+            : '已导出「$label」${rows.length} 人，已打开文件',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _exportingCategory = null);
+      }
+    }
   }
 
   Future<void> _clearCategory(String category) async {
@@ -642,65 +699,85 @@ class _SettingsPageState extends State<SettingsPage> {
                         (item) => item.trim().toLowerCase() == key,
                       );
                       final syncing = _syncingCategory == key;
+                      final exporting = _exportingCategory == key;
+                      final busy = _purging || _syncingCategory != null;
                       return Padding(
                         padding: EdgeInsets.symmetric(vertical: 4.h),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    XAccount.categoryLabel(key),
-                                    style: TextStyle(
-                                      fontSize: 15.sp,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        XAccount.categoryLabel(key),
+                                        style: TextStyle(
+                                          fontSize: 15.sp,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      Text(
+                                        '$count 人',
+                                        style: TextStyle(
+                                          color: AppColors.textMuted,
+                                          fontSize: 12.sp,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  Text(
-                                    '$count 人',
-                                    style: TextStyle(
-                                      color: AppColors.textMuted,
-                                      fontSize: 12.sp,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () => _viewCategory(key),
-                              child: Text(
-                                '查看',
-                                style: TextStyle(fontSize: 13.sp),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: _purging || _syncingCategory != null
-                                  ? null
-                                  : () => _clearCategory(key),
-                              child: Text(
-                                '清空',
-                                style: TextStyle(
-                                  fontSize: 13.sp,
-                                  color: _purging || _syncingCategory != null
-                                      ? AppColors.textMuted
-                                      : AppColors.danger,
                                 ),
-                              ),
+                                Switch(
+                                  value: on,
+                                  activeThumbColor: AppColors.accent,
+                                  onChanged: (value) =>
+                                      _toggleCategory(key, value),
+                                ),
+                              ],
                             ),
-                            TextButton(
-                              onPressed: _syncingCategory != null
-                                  ? null
-                                  : () => _syncCategory(key),
-                              child: Text(
-                                syncing ? '同步中' : '同步资料',
-                                style: TextStyle(fontSize: 13.sp),
-                              ),
-                            ),
-                            Switch(
-                              value: on,
-                              activeThumbColor: AppColors.accent,
-                              onChanged: (value) => _toggleCategory(key, value),
+                            Wrap(
+                              alignment: WrapAlignment.end,
+                              children: [
+                                TextButton(
+                                  onPressed: () => _viewCategory(key),
+                                  child: Text(
+                                    '查看',
+                                    style: TextStyle(fontSize: 13.sp),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: busy || _exportingCategory != null
+                                      ? null
+                                      : () => _exportCategory(key),
+                                  child: Text(
+                                    exporting ? '导出中' : '导出Excel',
+                                    style: TextStyle(fontSize: 13.sp),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: busy ? null : () => _clearCategory(key),
+                                  child: Text(
+                                    '清空',
+                                    style: TextStyle(
+                                      fontSize: 13.sp,
+                                      color: busy
+                                          ? AppColors.textMuted
+                                          : AppColors.danger,
+                                    ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: _syncingCategory != null
+                                      ? null
+                                      : () => _syncCategory(key),
+                                  child: Text(
+                                    syncing ? '同步中' : '同步资料',
+                                    style: TextStyle(fontSize: 13.sp),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),

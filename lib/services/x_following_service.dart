@@ -188,7 +188,7 @@ class XFollowingService {
     final params = _query(<String, String>{
       'q': q,
       'feed': feed,
-      'count': '30',
+      'count': '50',
     });
     if (current.isNotEmpty) {
       params['cursor'] = current;
@@ -196,8 +196,16 @@ class XFollowingService {
     final uri = Uri.parse('https://api.fxtwitter.com/2/search').replace(
       queryParameters: params,
     );
-    final json = jsonDecode(await _getRaw(uri)) as Map<String, dynamic>;
-    if ((json['code'] as num?)?.toInt() != 200) {
+    final body = await _getRaw(uri, allowNotFound: true);
+    if (body.trim().isEmpty) {
+      return const XPostPage(posts: <XPost>[], cursor: null);
+    }
+    final json = jsonDecode(body) as Map<String, dynamic>;
+    final code = (json['code'] as num?)?.toInt();
+    if (code == 404) {
+      return const XPostPage(posts: <XPost>[], cursor: null);
+    }
+    if (code != 200) {
       throw XFollowingException('搜索失败。');
     }
     final posts = _parseStatusList(json['results'], '');
@@ -206,6 +214,125 @@ class XFollowingService {
       next = null;
     }
     return XPostPage(posts: posts, cursor: next);
+  }
+
+  Future<XAccountPage> searchUsers(
+    String query, {
+    String? cursor,
+    Set<String> exclude = const <String>{},
+  }) async {
+    final q = query.trim().replaceFirst(RegExp(r'^@+'), '');
+    if (q.isEmpty) {
+      return const XAccountPage(accounts: <XAccount>[]);
+    }
+    final current = (cursor ?? '').trim();
+    final seen = <String>{
+      ...exclude.map((name) => name.trim().toLowerCase()).where((name) => name.isNotEmpty),
+    };
+    final accounts = <XAccount>[];
+
+    if (current.isEmpty) {
+      for (final account in await _typeaheadUsers(q)) {
+        final key = account.username.toLowerCase();
+        if (key.isEmpty || !seen.add(key)) {
+          continue;
+        }
+        accounts.add(account);
+      }
+    }
+
+    var next = current.isEmpty ? null : current;
+    var pages = 0;
+    const maxPages = 4;
+    try {
+      while (pages < maxPages) {
+        final page = await searchPosts(q, feed: 'latest', cursor: next);
+        var added = 0;
+        for (final account in _accountsFromPosts(page.posts)) {
+          final key = account.username.toLowerCase();
+          if (key.isEmpty || !seen.add(key)) {
+            continue;
+          }
+          accounts.add(account);
+          added++;
+        }
+        next = page.cursor;
+        pages++;
+        if (next == null || next.isEmpty || added > 0) {
+          break;
+        }
+      }
+    } catch (_) {
+      if (accounts.isEmpty) {
+        rethrow;
+      }
+      next = null;
+    }
+    return XAccountPage(accounts: accounts, cursor: next);
+  }
+
+  Future<List<XAccount>> _typeaheadUsers(String query) async {
+    final uri = Uri.parse('https://api.fxtwitter.com/2/typeahead').replace(
+      queryParameters: <String, String>{
+        'q': query,
+        'result_type': 'users',
+      },
+    );
+    final body = await _getRaw(uri, allowNotFound: true);
+    if (body.trim().isEmpty) {
+      return <XAccount>[];
+    }
+    final json = jsonDecode(body) as Map<String, dynamic>;
+    final code = (json['code'] as num?)?.toInt();
+    if (code == 404) {
+      return <XAccount>[];
+    }
+    if (code != 200) {
+      throw XFollowingException('搜索成员失败。');
+    }
+    final users = json['users'];
+    if (users is! List) {
+      return <XAccount>[];
+    }
+    final accounts = <XAccount>[];
+    final seen = <String>{};
+    for (final item in users) {
+      if (item is! Map) {
+        continue;
+      }
+      final account = _parseAccount(Map<String, dynamic>.from(item), '');
+      final key = account.username.toLowerCase();
+      if (key.isEmpty || !seen.add(key)) {
+        continue;
+      }
+      accounts.add(account);
+    }
+    return accounts;
+  }
+
+  List<XAccount> _accountsFromPosts(List<XPost> posts) {
+    final accounts = <XAccount>[];
+    final seen = <String>{};
+    for (final post in posts) {
+      final username = post.username.trim();
+      final key = username.toLowerCase();
+      if (key.isEmpty || !seen.add(key)) {
+        continue;
+      }
+      accounts.add(
+        XAccount(
+          username: username,
+          name: post.authorName.trim().isEmpty ? username : post.authorName.trim(),
+          description: '',
+          avatarUrl: post.avatarUrl,
+          profileUrl: 'https://x.com/$username',
+          followers: 0,
+          following: 0,
+          tweets: 0,
+        ),
+      );
+    }
+    return accounts;
   }
 
   String? _cursorBottom(dynamic raw) {
@@ -227,11 +354,18 @@ class XFollowingService {
     var avatar = '${user['avatar_url'] ?? ''}';
     avatar = avatar.replaceFirst('_normal', '_400x400');
     final username = '${user['screen_name'] ?? fallback}';
+    var description = '${user['description'] ?? ''}'.trim();
+    if (description.isEmpty) {
+      final raw = user['raw_description'];
+      if (raw is Map) {
+        description = '${raw['text'] ?? ''}'.trim();
+      }
+    }
     return XAccount(
       id: '${user['id'] ?? ''}',
       username: username,
       name: '${user['name'] ?? username}',
-      description: '${user['description'] ?? ''}',
+      description: description,
       avatarUrl: avatar,
       profileUrl: '${user['url'] ?? 'https://x.com/$username'}',
       followers: (user['followers'] as num?)?.toInt() ?? 0,
@@ -794,7 +928,11 @@ class XFollowingService {
     return text.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  Future<String> _getRaw(Uri uri, {String accept = 'application/json'}) async {
+  Future<String> _getRaw(
+    Uri uri, {
+    String accept = 'application/json',
+    bool allowNotFound = false,
+  }) async {
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 16);
     client.userAgent = _userAgent;
@@ -809,6 +947,9 @@ class XFollowingService {
         return '';
       }
       final body = await utf8.decodeStream(response);
+      if (response.statusCode == 404 && allowNotFound) {
+        return body;
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw XFollowingException('请求失败（HTTP ${response.statusCode}）。');
       }

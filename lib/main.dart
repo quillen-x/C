@@ -13,13 +13,16 @@ import 'screens/video_page.dart';
 import 'screens/x_accounts_page.dart';
 import 'screens/x_following_page.dart';
 import 'screens/x_photos_page.dart';
-import 'screens/x_trends_page.dart';
+import 'screens/x_search_page.dart';
 import 'theme.dart';
 import 'widgets/app_scope.dart';
 import 'widgets/home_shell.dart';
+import 'widgets/x_feed_links.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  XFeedLinks.openMention = openXMention;
+  XFeedLinks.openSearch = showPostSearch;
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.light);
   if (Platform.isMacOS) {
     await windowManager.ensureInitialized();
@@ -29,7 +32,7 @@ Future<void> main() async {
       backgroundColor: Colors.transparent,
       skipTaskbar: false,
       titleBarStyle: TitleBarStyle.hidden,
-      title: '热点 · 关注 · 下载',
+      title: 'C',
     );
     windowManager.waitUntilReadyToShow(windowOptions, () async {
       await windowManager.show();
@@ -91,7 +94,7 @@ class _Root extends StatefulWidget {
 }
 
 class _RootState extends State<_Root> {
-  AppPage _page = Platform.isIOS ? AppPage.xFeed : AppPage.xTrends;
+  AppPage _page = Platform.isIOS ? AppPage.xFeed : AppPage.search;
   final Map<AppPage, Widget> _pages = <AppPage, Widget>{};
   final Map<AppPage, GlobalKey> _pageKeys = <AppPage, GlobalKey>{};
 
@@ -151,8 +154,8 @@ class _RootState extends State<_Root> {
         return XFeedPage(key: key);
       case AppPage.xPhotos:
         return XPhotosPage(key: key);
-      case AppPage.xTrends:
-        return XTrendsPage(key: key);
+      case AppPage.search:
+        return XSearchPage(key: key);
       case AppPage.xFollowing:
         return XFollowingPage(key: key);
       case AppPage.xAccounts:

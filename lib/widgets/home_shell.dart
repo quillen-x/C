@@ -104,7 +104,7 @@ class _BottomNav extends StatelessWidget {
       case AppPage.xFollowing:
       case AppPage.xAccounts:
         return 2;
-      case AppPage.xTrends:
+      case AppPage.search:
         return 3;
       case AppPage.downloads:
       case AppPage.settings:
@@ -135,7 +135,7 @@ class _BottomNav extends StatelessWidget {
             onSelect(AppPage.xFollowing);
             break;
           case 3:
-            onSelect(AppPage.xTrends);
+            onSelect(AppPage.search);
             break;
           case 4:
             onSelect(AppPage.downloads);
@@ -159,9 +159,9 @@ class _BottomNav extends StatelessWidget {
           label: '关注',
         ),
         const BottomNavigationBarItem(
-          icon: Icon(Icons.local_fire_department_outlined),
-          activeIcon: Icon(Icons.local_fire_department),
-          label: '热点',
+          icon: Icon(Icons.search_outlined),
+          activeIcon: Icon(Icons.search),
+          label: '搜索',
         ),
         BottomNavigationBarItem(
           icon: activeCount > 0
@@ -204,11 +204,11 @@ class _Sidebar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _NavItem(
-            icon: Icons.local_fire_department,
-            label: '热点',
-            selected: page == AppPage.xTrends,
-            color: AppColors.warning,
-            onTap: () => onSelect(AppPage.xTrends),
+            icon: Icons.search,
+            label: '搜索',
+            selected: page == AppPage.search,
+            color: AppColors.accent,
+            onTap: () => onSelect(AppPage.search),
           ),
           _NavItem(
             icon: Icons.dynamic_feed_outlined,
@@ -349,9 +349,17 @@ class PageHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final compact = AppLayout.isCompact(context);
-   
-    const text = Column(
+    final text = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: compact ? 22.sp : 28.sp,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
     );
     return Padding(
       padding: AppLayout.headerPadding(context),
@@ -366,7 +374,7 @@ class PageHeader extends StatelessWidget {
             )
           : Row(
               children: [
-                const Expanded(child: text),
+                Expanded(child: text),
                 if (trailing != null) trailing!,
               ],
             ),

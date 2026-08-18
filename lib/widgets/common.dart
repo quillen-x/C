@@ -32,6 +32,7 @@ class AppTextField extends StatelessWidget {
     this.hint,
     this.onSubmitted,
     this.prefixIcon,
+    this.suffix,
     this.obscureText = false,
     this.contentPadding,
   });
@@ -40,6 +41,7 @@ class AppTextField extends StatelessWidget {
   final String? hint;
   final ValueChanged<String>? onSubmitted;
   final IconData? prefixIcon;
+  final Widget? suffix;
   final bool obscureText;
   final EdgeInsetsGeometry? contentPadding;
 
@@ -57,6 +59,15 @@ class AppTextField extends StatelessWidget {
         prefixIcon: prefixIcon == null
             ? null
             : Icon(prefixIcon, color: AppColors.textMuted, size: 20.w),
+        suffixIcon: suffix == null
+            ? null
+            : Padding(
+                padding: EdgeInsets.only(right: 6.w),
+                child: suffix,
+              ),
+        suffixIconConstraints: suffix == null
+            ? null
+            : const BoxConstraints(minWidth: 0, minHeight: 0),
         filled: true,
         fillColor: AppColors.surfaceAlt,
         contentPadding: contentPadding ??

@@ -3,7 +3,7 @@ enum AppPage {
   xPhotos,
   xFollowing,
   xAccounts,
-  xTrends,
+  search,
   x,
   downloads,
   settings,
@@ -378,6 +378,16 @@ class XPostPage {
   });
 
   final List<XPost> posts;
+  final String? cursor;
+}
+
+class XAccountPage {
+  const XAccountPage({
+    required this.accounts,
+    this.cursor,
+  });
+
+  final List<XAccount> accounts;
   final String? cursor;
 }
 
