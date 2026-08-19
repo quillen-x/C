@@ -257,7 +257,6 @@ class _XAccountsPageState extends State<XAccountsPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageHeader(
-          title: '关注列表',
           trailing: GhostButton(
             label: _loading ? '刷新中' : '刷新',
             icon: Icons.refresh,

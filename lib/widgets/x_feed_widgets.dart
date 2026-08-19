@@ -1097,10 +1097,22 @@ class XAvatar extends StatelessWidget {
 
 String formatCount(int value) {
   if (value >= 100000000) {
-    return '${(value / 100000000).toStringAsFixed(1)}亿';
+    final yi = value / 100000000;
+    if (yi == yi.roundToDouble()) {
+      return '${yi.toInt()}亿';
+    }
+    return '${yi.toStringAsFixed(1)}亿';
+  }
+  // 1000万～1亿：用完整「xxxx万」，避免被截成 2.4亿 / xxxx.x万
+  if (value >= 10000000) {
+    return '${value ~/ 10000}万';
   }
   if (value >= 10000) {
-    return '${(value / 10000).toStringAsFixed(1)}万';
+    final wan = value / 10000;
+    if (wan == wan.roundToDouble()) {
+      return '${wan.toInt()}万';
+    }
+    return '${wan.toStringAsFixed(1)}万';
   }
   if (value >= 1000) {
     return '${(value / 1000).toStringAsFixed(1)}K';

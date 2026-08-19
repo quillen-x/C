@@ -92,7 +92,6 @@ class _XPhotosPageState extends State<XPhotosPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageHeader(
-          title: '关注图片',
           trailing: _started
               ? GhostButton(
                   label: _loading ? '刷新中' : '刷新',

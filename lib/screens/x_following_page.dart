@@ -240,6 +240,11 @@ class _XFollowingPageState extends State<XFollowingPage> {
       return app.showsAccount(account);
     }).toList();
     names.sort((a, b) {
+      final specialA = _profiles[a.toLowerCase()]?.special == true;
+      final specialB = _profiles[b.toLowerCase()]?.special == true;
+      if (specialA != specialB) {
+        return specialA ? -1 : 1;
+      }
       final followersA = _profiles[a.toLowerCase()]?.followers ?? 0;
       final followersB = _profiles[b.toLowerCase()]?.followers ?? 0;
       final byFollowers = followersB.compareTo(followersA);
@@ -341,6 +346,47 @@ class _XFollowingPageState extends State<XFollowingPage> {
     });
     if (_selected != null) {
       await _select(_selected!);
+    }
+  }
+
+  Future<void> _toggleSpecial(String username) async {
+    final app = AppScope.of(context);
+    final key = username.toLowerCase();
+    final current = _profiles[key];
+    final next = !(current?.special ?? false);
+    try {
+      if (current == null) {
+        final fetched = await app.xFollowingService.fetchAccount(username);
+        final tagged = fetched.copyWith(
+          category: app.followCategory,
+          special: next,
+        );
+        await app.accountDb.upsert(tagged);
+        await app.accountDb.updateCategory(tagged.username, tagged.category);
+        await app.accountDb.updateSpecial(tagged.username, next);
+        if (!mounted) {
+          return;
+        }
+        setState(() => _profiles[tagged.username.toLowerCase()] = tagged);
+      } else {
+        await app.accountDb.updateSpecial(username, next);
+        if (!mounted) {
+          return;
+        }
+        setState(() => _profiles[key] = current.copyWith(special: next));
+      }
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(
+        context,
+        next ? '已特别关注 @$username' : '已取消特别关注 @$username',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
     }
   }
 
@@ -692,12 +738,13 @@ class _XFollowingPageState extends State<XFollowingPage> {
                     controller: _listScroll,
                     onAdd: _add,
                     onSelect: _select,
+                    onToggleSpecial: _toggleSpecial,
                     onRemove: _remove,
                   )
                 : Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(width: 250.w,
+                      SizedBox(width: 300.w,
                         child: _AccountList(
                           names: names,
                           selected: _selected,
@@ -708,6 +755,7 @@ class _XFollowingPageState extends State<XFollowingPage> {
                           controller: _listScroll,
                           onAdd: _add,
                           onSelect: _select,
+                          onToggleSpecial: _toggleSpecial,
                           onRemove: _remove,
                         ),
                       ),
@@ -793,6 +841,7 @@ class _AccountList extends StatelessWidget {
     required this.controller,
     required this.onAdd,
     required this.onSelect,
+    required this.onToggleSpecial,
     required this.onRemove,
   });
 
@@ -805,6 +854,7 @@ class _AccountList extends StatelessWidget {
   final ScrollController controller;
   final VoidCallback onAdd;
   final ValueChanged<String> onSelect;
+  final ValueChanged<String> onToggleSpecial;
   final ValueChanged<String> onRemove;
 
   @override
@@ -927,8 +977,36 @@ class _AccountList extends StatelessWidget {
                                     ),
                                   ),
                                   IconButton(
+                                    tooltip: account?.special == true
+                                        ? '取消特别关注'
+                                        : '特别关注',
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: BoxConstraints(
+                                      minWidth: 28.w,
+                                      minHeight: 28.w,
+                                    ),
+                                    onPressed: () => onToggleSpecial(username),
+                                    icon: Icon(
+                                      account?.special == true
+                                          ? Icons.favorite_rounded
+                                          : Icons.favorite_border_rounded,
+                                      size: 16.w,
+                                      color: account?.special == true
+                                          ? AppColors.danger
+                                          : (isSelected
+                                              ? AppColors.textMuted
+                                              : AppColors.border),
+                                    ),
+                                  ),
+                                  IconButton(
                                     tooltip: '取消关注',
                                     visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: BoxConstraints(
+                                      minWidth: 28.w,
+                                      minHeight: 28.w,
+                                    ),
                                     onPressed: () => onRemove(username),
                                     icon: Icon(
                                       Icons.close,
@@ -1410,7 +1488,7 @@ class _ProfileHeader extends StatelessWidget {
     VoidCallback? onTap,
   }) {
     final child = SizedBox(
-      width: 52.w,
+      width: 64.w,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1418,9 +1496,10 @@ class _ProfileHeader extends StatelessWidget {
             value,
             textAlign: TextAlign.center,
             maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            overflow: TextOverflow.visible,
+            softWrap: false,
             style: TextStyle(
-              fontSize: 13.sp,
+              fontSize: 12.sp,
               fontWeight: FontWeight.w800,
               height: 1.2,
               color: onTap == null ? AppColors.text : AppColors.accent,
@@ -1592,7 +1671,10 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
       final profile = await app.xFollowingService.fetchAccount(username);
       if (mounted) {
         setState(() {
-          _account = profile.copyWith(category: _account.category);
+          _account = profile.copyWith(
+            category: _account.category,
+            special: _account.special,
+          );
         });
       }
     } catch (_) {}

@@ -193,6 +193,7 @@ class XAccount {
     this.protected = false,
     this.updatedAt = 0,
     this.category = '',
+    this.special = false,
   });
 
   final String id;
@@ -207,6 +208,7 @@ class XAccount {
   final bool protected;
   final int updatedAt;
   final String category;
+  final bool special;
 
   String get categoryKey => category.trim().toLowerCase();
 
@@ -215,7 +217,7 @@ class XAccount {
     return key.isEmpty ? '未分类' : key;
   }
 
-  XAccount copyWith({String? category}) {
+  XAccount copyWith({String? category, bool? special}) {
     return XAccount(
       id: id,
       username: username,
@@ -229,6 +231,7 @@ class XAccount {
       protected: protected,
       updatedAt: updatedAt,
       category: category ?? this.category,
+      special: special ?? this.special,
     );
   }
 }

@@ -250,13 +250,6 @@ class _Sidebar extends StatelessWidget {
             onTap: () => onSelect(AppPage.downloads),
           ),
           const Spacer(),
-          SectionCard(
-            padding: EdgeInsets.all(12.w),
-            child: Text(
-              '请先打开 Clash / VPN，并在设置中填写代理端口（常见 7890 / 7897）。',
-              style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp, height: 1.45),
-            ),
-          ),
           SizedBox(height: 10.h),
           _NavItem(
             icon: Icons.category_outlined,
@@ -349,43 +342,22 @@ class _NavItem extends StatelessWidget {
 class PageHeader extends StatelessWidget {
   const PageHeader({
     super.key,
-    required this.title,
     this.trailing,
   });
 
-  final String title;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    final compact = AppLayout.isCompact(context);
-    final text = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: compact ? 22.sp : 28.sp,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ],
-    );
-    final header = compact && trailing != null
-        ? Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              text,
-              SizedBox(height: 12.h),
-              trailing!,
-            ],
-          )
+    final drag = Platform.isMacOS
+        ? const DragToMoveArea(child: SizedBox(height: 28, width: double.infinity))
+        : const SizedBox.shrink();
+    final header = trailing == null
+        ? drag
         : Row(
             children: [
-              Expanded(
-                child: Platform.isMacOS ? DragToMoveArea(child: text) : text,
-              ),
-              if (trailing != null) trailing!,
+              Expanded(child: drag),
+              trailing!,
             ],
           );
     return Padding(

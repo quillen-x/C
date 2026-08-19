@@ -555,7 +555,6 @@ class _CategoriesPageState extends State<CategoriesPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageHeader(
-          title: '分类',
           trailing: Navigator.of(context).canPop()
               ? IconButton(
                   tooltip: '返回',

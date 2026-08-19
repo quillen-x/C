@@ -1,10 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models.dart';
+import '../services/io_helpers.dart';
 import '../theme.dart';
+import 'app_scope.dart';
+import 'common.dart';
 
 void showPostMedia(BuildContext context, List<XMedia> media, int index) {
   if (media.isEmpty || index < 0 || index >= media.length) {
@@ -57,6 +62,7 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
   late final PageController _controller;
   late final TransformationController _transform;
   late int _index;
+  bool _downloading = false;
 
   @override
   void initState() {
@@ -75,6 +81,106 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
 
   bool get _zoomed {
     return _transform.value.getMaxScaleOnAxis() > 1.05;
+  }
+
+  XMedia get _current => widget.photos[_index];
+
+  Future<void> _downloadCurrent() async {
+    if (_downloading) {
+      return;
+    }
+    setState(() => _downloading = true);
+    try {
+      final app = AppScope.of(context);
+      final dir = await IoHelpers.ensureDownloadDir(app.settings.downloadDir);
+      final url = _current.originalUrl.trim().isEmpty
+          ? _current.url.trim()
+          : _current.originalUrl.trim();
+      if (url.isEmpty) {
+        throw StateError('没有可下载的图片地址');
+      }
+      final path = await _savePhoto(url, dir.path);
+      if (Platform.isIOS) {
+        await IoHelpers.saveToPhotos(path);
+      }
+      if (!mounted) {
+        return;
+      }
+      showDownloadDoneSnack(context, path);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _downloading = false);
+      }
+    }
+  }
+
+  Future<String> _savePhoto(String url, String dir) async {
+    final uri = Uri.parse(url);
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 20);
+    client.userAgent =
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    try {
+      final request = await client.getUrl(uri);
+      request.headers.set('Referer', 'https://x.com/');
+      request.followRedirects = true;
+      request.maxRedirects = 8;
+      final response = await request.close().timeout(const Duration(seconds: 30));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('图片下载失败（HTTP ${response.statusCode}）');
+      }
+      final ext = _photoExt(
+        uri.path,
+        response.headers.contentType?.mimeType ?? '',
+      );
+      final name = IoHelpers.sanitizeFileName(
+        'x-photo-${DateTime.now().millisecondsSinceEpoch}$ext',
+      );
+      final path = '$dir/$name';
+      final file = File(path);
+      final sink = file.openWrite();
+      try {
+        await for (final chunk in response) {
+          sink.add(chunk);
+        }
+        await sink.flush();
+      } catch (error) {
+        await sink.close();
+        try {
+          await file.delete();
+        } catch (_) {}
+        rethrow;
+      }
+      await sink.close();
+      if (await file.length() <= 0) {
+        try {
+          await file.delete();
+        } catch (_) {}
+        throw StateError('图片文件为空');
+      }
+      return path;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  String _photoExt(String path, String mime) {
+    final lowerPath = path.toLowerCase();
+    if (lowerPath.endsWith('.png') || mime.contains('png')) {
+      return '.png';
+    }
+    if (lowerPath.endsWith('.gif') || mime.contains('gif')) {
+      return '.gif';
+    }
+    if (lowerPath.endsWith('.webp') || mime.contains('webp')) {
+      return '.webp';
+    }
+    return '.jpg';
   }
 
   void _go(int delta) {
@@ -133,7 +239,31 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
               Positioned(
                 top: 12.h,
                 right: 12.w,
-                child: _CloseButton(onTap: () => Navigator.of(context).pop()),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _CircleActionButton(
+                      tooltip: '下载',
+                      onTap: _downloading ? null : _downloadCurrent,
+                      child: _downloading
+                          ? SizedBox(
+                              width: 18.w,
+                              height: 18.w,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.w,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Icon(
+                              Icons.download_rounded,
+                              color: Colors.white,
+                              size: 22.w,
+                            ),
+                    ),
+                    SizedBox(width: 8.w),
+                    _CloseButton(onTap: () => Navigator.of(context).pop()),
+                  ],
+                ),
               ),
               if (canPrev)
                 Positioned(
@@ -403,10 +533,16 @@ class _NavButton extends StatelessWidget {
   }
 }
 
-class _CloseButton extends StatelessWidget {
-  const _CloseButton({required this.onTap});
+class _CircleActionButton extends StatelessWidget {
+  const _CircleActionButton({
+    required this.tooltip,
+    required this.child,
+    this.onTap,
+  });
 
-  final VoidCallback onTap;
+  final String tooltip;
+  final Widget child;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -414,10 +550,25 @@ class _CloseButton extends StatelessWidget {
       color: const Color(0x99000000),
       shape: const CircleBorder(),
       child: IconButton(
-        tooltip: '关闭',
+        tooltip: tooltip,
         onPressed: onTap,
-        icon: Icon(Icons.close, color: Colors.white, size: 22.w),
+        icon: child,
       ),
+    );
+  }
+}
+
+class _CloseButton extends StatelessWidget {
+  const _CloseButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _CircleActionButton(
+      tooltip: '关闭',
+      onTap: onTap,
+      child: Icon(Icons.close, color: Colors.white, size: 22.w),
     );
   }
 }

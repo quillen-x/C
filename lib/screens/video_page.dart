@@ -235,7 +235,6 @@ class _VideoPageState extends State<VideoPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageHeader(
-          title: '视频',
           trailing: !_started
               ? null
               : Wrap(

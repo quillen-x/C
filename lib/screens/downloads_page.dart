@@ -211,7 +211,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageHeader(
-          title: '下载',
           trailing: Wrap(
             spacing: 8.w,
             runSpacing: 8.h,

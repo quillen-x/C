@@ -91,8 +91,6 @@ class _SettingsPageState extends State<SettingsPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageHeader(
-          title: '设置',
- 
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [

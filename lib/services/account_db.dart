@@ -27,7 +27,8 @@ class AccountDb {
         tweets INTEGER NOT NULL DEFAULT 0,
         protected INTEGER NOT NULL DEFAULT 0,
         updated_at INTEGER NOT NULL DEFAULT 0,
-        category TEXT NOT NULL DEFAULT ''
+        category TEXT NOT NULL DEFAULT '',
+        special INTEGER NOT NULL DEFAULT 0
       )
     ''');
     _migrate(db);
@@ -45,6 +46,11 @@ class AccountDb {
         "ALTER TABLE accounts ADD COLUMN category TEXT NOT NULL DEFAULT ''",
       );
       db.execute("UPDATE accounts SET category = 'sex'");
+    }
+    if (!columns.contains('special')) {
+      db.execute(
+        'ALTER TABLE accounts ADD COLUMN special INTEGER NOT NULL DEFAULT 0',
+      );
     }
   }
 
@@ -93,6 +99,7 @@ class AccountDb {
       protected: (row['protected'] as num?)?.toInt() == 1,
       updatedAt: (row['updated_at'] as num?)?.toInt() ?? 0,
       category: '${row['category'] ?? ''}',
+      special: (row['special'] as num?)?.toInt() == 1,
     );
   }
 
@@ -141,6 +148,17 @@ class AccountDb {
     (await _open()).execute(
       'UPDATE accounts SET category = ? WHERE username = ? COLLATE NOCASE',
       <Object>[category.trim(), name],
+    );
+  }
+
+  Future<void> updateSpecial(String username, bool special) async {
+    final name = username.trim();
+    if (name.isEmpty) {
+      return;
+    }
+    (await _open()).execute(
+      'UPDATE accounts SET special = ? WHERE username = ? COLLATE NOCASE',
+      <Object>[special ? 1 : 0, name],
     );
   }
 
@@ -216,8 +234,8 @@ class AccountDb {
     final stmt = db.prepare('''
       INSERT INTO accounts (
         username, user_id, name, description, avatar_url, profile_url,
-        followers, following, tweets, protected, updated_at, category
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        followers, following, tweets, protected, updated_at, category, special
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(username) DO UPDATE SET
         user_id = excluded.user_id,
         name = excluded.name,
@@ -247,6 +265,7 @@ class AccountDb {
           account.protected ? 1 : 0,
           now,
           account.category,
+          account.special ? 1 : 0,
         ]);
       }
       db.execute('COMMIT');
