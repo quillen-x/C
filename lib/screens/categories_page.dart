@@ -66,7 +66,10 @@ class _CategoriesPageState extends State<CategoriesPage> {
 
   Future<void> _loadCategories() async {
     try {
-      final counts = await AppScope.of(context).accountDb.categoryCounts();
+      final app = AppScope.of(context);
+      final counts = await app.accountDb.categoryCounts(
+        following: app.settings.xFollowing.toSet(),
+      );
       if (!mounted) {
         return;
       }
@@ -606,81 +609,71 @@ class _CategoriesPageState extends State<CategoriesPage> {
                       final busy = _purging || _syncingCategory != null;
                       return Padding(
                         padding: EdgeInsets.symmetric(vertical: 4.h),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                        child: Row(
                           children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        XAccount.categoryLabel(key),
-                                        style: TextStyle(
-                                          fontSize: 15.sp,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      Text(
-                                        '$count 人',
-                                        style: TextStyle(
-                                          color: AppColors.textMuted,
-                                          fontSize: 12.sp,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Switch(
-                                  value: on,
-                                  activeThumbColor: AppColors.accent,
-                                  onChanged: (value) =>
-                                      _toggleCategory(key, value),
-                                ),
-                              ],
-                            ),
-                            Wrap(
-                              alignment: WrapAlignment.end,
-                              children: [
-                                TextButton(
-                                  onPressed: () => _viewCategory(key),
-                                  child: Text(
-                                    '查看',
-                                    style: TextStyle(fontSize: 13.sp),
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: busy || _exportingCategory != null
-                                      ? null
-                                      : () => _exportCategory(key),
-                                  child: Text(
-                                    exporting ? '导出中' : '导出Excel',
-                                    style: TextStyle(fontSize: 13.sp),
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: busy ? null : () => _clearCategory(key),
-                                  child: Text(
-                                    '清空',
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    XAccount.categoryLabel(key),
                                     style: TextStyle(
-                                      fontSize: 13.sp,
-                                      color: busy
-                                          ? AppColors.textMuted
-                                          : AppColors.danger,
+                                      fontSize: 15.sp,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                ),
-                                TextButton(
-                                  onPressed: _syncingCategory != null
-                                      ? null
-                                      : () => _syncCategory(key),
-                                  child: Text(
-                                    syncing ? '同步中' : '同步资料',
-                                    style: TextStyle(fontSize: 13.sp),
+                                  Text(
+                                    '$count 人',
+                                    style: TextStyle(
+                                      color: AppColors.textMuted,
+                                      fontSize: 12.sp,
+                                    ),
                                   ),
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => _viewCategory(key),
+                              child: Text(
+                                '查看',
+                                style: TextStyle(fontSize: 13.sp),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: busy || _exportingCategory != null
+                                  ? null
+                                  : () => _exportCategory(key),
+                              child: Text(
+                                exporting ? '导出中' : '导出',
+                                style: TextStyle(fontSize: 13.sp),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: busy ? null : () => _clearCategory(key),
+                              child: Text(
+                                '清空',
+                                style: TextStyle(
+                                  fontSize: 13.sp,
+                                  color: busy
+                                      ? AppColors.textMuted
+                                      : AppColors.danger,
                                 ),
-                              ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _syncingCategory != null
+                                  ? null
+                                  : () => _syncCategory(key),
+                              child: Text(
+                                syncing ? '同步中' : '同步资料',
+                                style: TextStyle(fontSize: 13.sp),
+                              ),
+                            ),
+                            Switch(
+                              value: on,
+                              activeThumbColor: AppColors.accent,
+                              onChanged: (value) =>
+                                  _toggleCategory(key, value),
                             ),
                           ],
                         ),

@@ -296,7 +296,7 @@ class _VideoPageState extends State<VideoPage> {
     }
     final columns = _columns(context);
     return GridView.builder(
-      padding: AppLayout.pagePadding(context, bottom: 28),
+      padding: AppLayout.pagePadding(context, bottom: AppLayout.mediaHubBarClearance),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: columns,
         mainAxisSpacing: 10.h,

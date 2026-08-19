@@ -30,4 +30,6 @@ class AppLayout {
     final horizontal = (isCompact(context) ? 16.0 : 28.0).w;
     return EdgeInsets.fromLTRB(horizontal, top.h, horizontal, bottom.h);
   }
+
+  static double get mediaHubBarClearance => 88;
 }

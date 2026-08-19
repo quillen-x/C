@@ -184,7 +184,7 @@ class _PhotoWaterfall extends StatelessWidget {
       controller: controller,
       slivers: [
         SliverPadding(
-          padding: EdgeInsets.fromLTRB(12.w, 12.h, 12.w, 20.h),
+          padding: EdgeInsets.fromLTRB(12.w, 12.h, 12.w, AppLayout.mediaHubBarClearance.h),
           sliver: SliverToBoxAdapter(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,

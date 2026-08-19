@@ -7,7 +7,10 @@ enum AppPage {
   x,
   downloads,
   categories,
-  settings,
+  settings;
+
+  bool get isMediaHub =>
+      this == AppPage.xFeed || this == AppPage.xPhotos || this == AppPage.x;
 }
 
 enum DownloadKind { x }

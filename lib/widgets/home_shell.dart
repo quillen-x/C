@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -7,7 +8,6 @@ import 'package:window_manager/window_manager.dart';
 import '../models.dart';
 import '../theme.dart';
 import 'app_layout.dart';
-import 'common.dart';
 
 class HomeShell extends StatelessWidget {
   const HomeShell({
@@ -25,6 +25,25 @@ class HomeShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final content = page.isMediaHub
+        ? Stack(
+            fit: StackFit.expand,
+            children: [
+              child,
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 16.h,
+                child: Center(
+                  child: _MediaSubTabs(
+                    page: page,
+                    onSelect: onSelect,
+                  ),
+                ),
+              ),
+            ],
+          )
+        : child;
     if (AppLayout.isCompact(context)) {
       return Column(
         children: [
@@ -33,7 +52,7 @@ class HomeShell extends StatelessWidget {
               bottom: false,
               child: ColoredBox(
                 color: AppColors.bg,
-                child: child,
+                child: content,
               ),
             ),
           ),
@@ -61,7 +80,7 @@ class HomeShell extends StatelessWidget {
         Expanded(
           child: ColoredBox(
             color: AppColors.bg,
-            child: child,
+            child: content,
           ),
         ),
       ],
@@ -87,20 +106,19 @@ class _BottomNav extends StatelessWidget {
   int get _index {
     switch (page) {
       case AppPage.xFeed:
-        return 0;
       case AppPage.xPhotos:
-        return 1;
+      case AppPage.x:
+        return 0;
       case AppPage.xFollowing:
       case AppPage.xAccounts:
-        return 2;
+        return 1;
       case AppPage.search:
-        return 3;
+        return 2;
       case AppPage.categories:
-        return 4;
+        return 3;
       case AppPage.downloads:
       case AppPage.settings:
-      case AppPage.x:
-        return 5;
+        return 4;
     }
   }
 
@@ -117,21 +135,20 @@ class _BottomNav extends StatelessWidget {
       onTap: (index) {
         switch (index) {
           case 0:
-            onSelect(AppPage.xFeed);
+            if (!page.isMediaHub) {
+              onSelect(AppPage.xFeed);
+            }
             break;
           case 1:
-            onSelect(AppPage.xPhotos);
-            break;
-          case 2:
             onSelect(AppPage.xFollowing);
             break;
-          case 3:
+          case 2:
             onSelect(AppPage.search);
             break;
-          case 4:
+          case 3:
             onSelect(AppPage.categories);
             break;
-          case 5:
+          case 4:
             onSelect(AppPage.downloads);
             break;
         }
@@ -141,11 +158,6 @@ class _BottomNav extends StatelessWidget {
           icon: Icon(Icons.dynamic_feed_outlined),
           activeIcon: Icon(Icons.dynamic_feed),
           label: '动态',
-        ),
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.photo_outlined),
-          activeIcon: Icon(Icons.photo),
-          label: '图片',
         ),
         const BottomNavigationBarItem(
           icon: Icon(Icons.people_outline),
@@ -216,16 +228,13 @@ class _Sidebar extends StatelessWidget {
           _NavItem(
             icon: Icons.dynamic_feed_outlined,
             label: '动态',
-            selected: page == AppPage.xFeed,
+            selected: page.isMediaHub,
             color: AppColors.x,
-            onTap: () => onSelect(AppPage.xFeed),
-          ),
-          _NavItem(
-            icon: Icons.photo_outlined,
-            label: '图片',
-            selected: page == AppPage.xPhotos,
-            color: AppColors.x,
-            onTap: () => onSelect(AppPage.xPhotos),
+            onTap: () {
+              if (!page.isMediaHub) {
+                onSelect(AppPage.xFeed);
+              }
+            },
           ),
           _NavItem(
             icon: Icons.people_outline,
@@ -233,13 +242,6 @@ class _Sidebar extends StatelessWidget {
             selected: page == AppPage.xFollowing || page == AppPage.xAccounts,
             color: AppColors.x,
             onTap: () => onSelect(AppPage.xFollowing),
-          ),
-          _NavItem(
-            icon: Icons.alternate_email,
-            label: '视频',
-            selected: page == AppPage.x,
-            color: AppColors.x,
-            onTap: () => onSelect(AppPage.x),
           ),
           _NavItem(
             icon: Icons.download_outlined,
@@ -266,6 +268,99 @@ class _Sidebar extends StatelessWidget {
             onTap: () => onSelect(AppPage.settings),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MediaSubTabs extends StatelessWidget {
+  const _MediaSubTabs({
+    required this.page,
+    required this.onSelect,
+  });
+
+  final AppPage page;
+  final ValueChanged<AppPage> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999.w),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: EdgeInsets.all(4.w),
+          decoration: BoxDecoration(
+            color: AppColors.surface.withValues(alpha: 0.82),
+            borderRadius: BorderRadius.circular(999.w),
+            border: Border.all(color: AppColors.border),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.28),
+                blurRadius: 18.w,
+                offset: Offset(0, 8.h),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _item(
+                label: '动态',
+                icon: Icons.dynamic_feed_outlined,
+                target: AppPage.xFeed,
+              ),
+              _item(
+                label: '图片',
+                icon: Icons.photo_outlined,
+                target: AppPage.xPhotos,
+              ),
+              _item(
+                label: '视频',
+                icon: Icons.smart_display_outlined,
+                target: AppPage.x,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _item({
+    required String label,
+    required IconData icon,
+    required AppPage target,
+  }) {
+    final selected = page == target;
+    return Material(
+      color: selected ? AppColors.accent.withValues(alpha: 0.22) : Colors.transparent,
+      borderRadius: BorderRadius.circular(999.w),
+      child: InkWell(
+        onTap: selected ? null : () => onSelect(target),
+        borderRadius: BorderRadius.circular(999.w),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 8.h),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16.w,
+                color: selected ? AppColors.accent : AppColors.textMuted,
+              ),
+              SizedBox(width: 6.w),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13.sp,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                  color: selected ? AppColors.text : AppColors.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

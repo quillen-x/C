@@ -128,14 +128,25 @@ class AccountDb {
     return _fromRow(rows.first);
   }
 
-  Future<Map<String, int>> categoryCounts() async {
+  Future<Map<String, int>> categoryCounts({Set<String>? following}) async {
     final rows = (await _open()).select(
-      'SELECT category, COUNT(*) AS total FROM accounts GROUP BY category',
+      'SELECT username, category FROM accounts',
     );
+    final allowed = following
+        ?.map((item) => item.trim().toLowerCase())
+        .where((item) => item.isNotEmpty)
+        .toSet();
     final counts = <String, int>{};
     for (final row in rows) {
+      final username = '${row['username'] ?? ''}'.trim().toLowerCase();
+      if (username.isEmpty) {
+        continue;
+      }
+      if (allowed != null && !allowed.contains(username)) {
+        continue;
+      }
       final key = '${row['category'] ?? ''}'.trim().toLowerCase();
-      counts[key] = (counts[key] as int? ?? 0) + ((row['total'] as int?) ?? 0);
+      counts[key] = (counts[key] ?? 0) + 1;
     }
     return counts;
   }

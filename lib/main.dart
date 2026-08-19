@@ -96,6 +96,7 @@ class _Root extends StatefulWidget {
 
 class _RootState extends State<_Root> {
   AppPage _page = Platform.isIOS ? AppPage.xFeed : AppPage.search;
+  AppPage _mediaPage = AppPage.xFeed;
   final Map<AppPage, Widget> _pages = <AppPage, Widget>{};
   final Map<AppPage, GlobalKey> _pageKeys = <AppPage, GlobalKey>{};
 
@@ -104,10 +105,24 @@ class _RootState extends State<_Root> {
     super.initState();
     _ensurePage(_page);
     _ensurePage(AppPage.downloads);
+    if (_page.isMediaHub) {
+      _ensurePage(AppPage.xFeed);
+      _ensurePage(AppPage.xPhotos);
+      _ensurePage(AppPage.x);
+    }
   }
 
   void _select(AppPage page) {
     setState(() {
+      if (page == AppPage.xFeed && !_page.isMediaHub) {
+        page = _mediaPage;
+      }
+      if (page.isMediaHub) {
+        _mediaPage = page;
+        _ensurePage(AppPage.xFeed);
+        _ensurePage(AppPage.xPhotos);
+        _ensurePage(AppPage.x);
+      }
       _ensurePage(page);
       _page = page;
     });

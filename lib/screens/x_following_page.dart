@@ -177,6 +177,7 @@ class _XFeedPageState extends State<XFeedPage> {
       loadingMore: _loading,
       hasMore: _loading,
       onDownload: _downloadPost,
+      padding: EdgeInsets.fromLTRB(12.w, 12.h, 12.w, AppLayout.mediaHubBarClearance.h),
     );
   }
 }
@@ -744,7 +745,7 @@ class _XFollowingPageState extends State<XFollowingPage> {
                 : Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(width: 300.w,
+                      SizedBox(width: 260.w,
                         child: _AccountList(
                           names: names,
                           selected: _selected,
@@ -872,7 +873,8 @@ class _AccountList extends StatelessWidget {
               AppTextField(
                 controller: input,
                 hint: 'NASA',
-                contentPadding: EdgeInsets.fromLTRB(14.w, 12.h, 100.w, 12.h),
+                isDense: true,
+                contentPadding: EdgeInsets.fromLTRB(14.w, 10.h, 72.w, 20.h),
                 onSubmitted: (_) => onAdd(),
               ),
               Padding(
@@ -880,6 +882,7 @@ class _AccountList extends StatelessWidget {
                 child: PrimaryButton(
                   label: '关注',
                   color: AppColors.x,
+                  compact: true,
                   busy: adding,
                   onPressed: onAdd,
                 ),
@@ -935,18 +938,10 @@ class _AccountList extends StatelessWidget {
                             onTap: () => onSelect(username),
                             borderRadius: BorderRadius.circular(10.w),
                             child: Padding(
-                              padding: EdgeInsets.fromLTRB(6.w, 8.h, 2.w, 8.h),
+                              padding: EdgeInsets.fromLTRB(6.w, 8.h, 4.w, 8.h),
                               child: Row(
                                 children: [
-                                  Container(
-                                    width: 3.w,
-                                    height: 32.h,
-                                    decoration: BoxDecoration(
-                                      color: isSelected ? AppColors.accent : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(2.w),
-                                    ),
-                                  ),
-                                  SizedBox(width: 8.w),
+                                  SizedBox(width: 4.w),
                                   XAvatar(url: account?.avatarUrl ?? '', size: 28),
                                   SizedBox(width: 8.w),
                                   Expanded(

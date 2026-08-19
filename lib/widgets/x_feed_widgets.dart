@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../models.dart';
+import '../services/io_helpers.dart';
 import '../services/x_following_service.dart';
 import '../theme.dart';
 import 'app_layout.dart';
@@ -733,11 +734,19 @@ class _RichPostText extends StatefulWidget {
 
 class _RichPostTextState extends State<_RichPostText> {
   static final _token = RegExp(
-    r'@[A-Za-z0-9_]{1,15}|#[^\s#@]+',
+    r'(?:https?://|www\.)[^\s<>\[\]（）‘’“”「」『』]+'
+    r'|(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}/[^\s<>\[\]（）‘’“”「」『』]*'
+    r'|@[A-Za-z0-9_]{1,15}'
+    r'|#[^\s#@]+',
     unicode: true,
+    caseSensitive: false,
   );
   static final _trailing = RegExp(
-    r'''[.,!?;:'")\]}，。！？、；：）】》」』]+$''',
+    r'''[.,!?;:'"”’»)\]}，。！？、；：）】》」』]+$''',
+  );
+  static final _urlLike = RegExp(
+    r'^(?:https?://|www\.)|(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}/',
+    caseSensitive: false,
   );
 
   final List<TapGestureRecognizer> _recognizers = <TapGestureRecognizer>[];
@@ -747,12 +756,15 @@ class _RichPostTextState extends State<_RichPostText> {
   @override
   void didUpdateWidget(covariant _RichPostText oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.text != widget.text ||
-        oldWidget.style.color != widget.style.color ||
-        oldWidget.style.fontSize != widget.style.fontSize ||
-        oldWidget.style.fontWeight != widget.style.fontWeight) {
+    if (oldWidget.text != widget.text || oldWidget.style != widget.style) {
       _spanCache = null;
     }
+  }
+
+  @override
+  void reassemble() {
+    _spanCache = null;
+    super.reassemble();
   }
 
   @override
@@ -774,13 +786,32 @@ class _RichPostTextState extends State<_RichPostText> {
     return recognizer;
   }
 
+  bool _isUrl(String token) => _urlLike.hasMatch(token);
+
+  String _href(String value) {
+    final lower = value.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      return value;
+    }
+    return 'https://$value';
+  }
+
+  TextStyle _tokenStyle(TextStyle base, {required bool underline}) {
+    return TextStyle(
+      height: base.height,
+      fontSize: base.fontSize,
+      fontWeight: FontWeight.w700,
+      color: AppColors.accent,
+      decoration: underline ? TextDecoration.underline : TextDecoration.none,
+      decorationColor: underline ? AppColors.accent : null,
+    );
+  }
+
   TextSpan _span() {
     _clearRecognizers();
     final base = widget.style;
-    final link = base.copyWith(
-      color: AppColors.accent,
-      fontWeight: FontWeight.w700,
-    );
+    final mention = _tokenStyle(base, underline: false);
+    final url = _tokenStyle(base, underline: true);
     final children = <InlineSpan>[];
     final text = widget.text;
     var start = 0;
@@ -790,7 +821,8 @@ class _RichPostTextState extends State<_RichPostText> {
       }
       var token = match.group(0) ?? '';
       var extra = '';
-      if (token.startsWith('#')) {
+      final isUrl = _isUrl(token);
+      if (token.startsWith('#') || isUrl) {
         final cleaned = token.replaceFirst(_trailing, '');
         extra = token.substring(cleaned.length);
         token = cleaned;
@@ -800,7 +832,7 @@ class _RichPostTextState extends State<_RichPostText> {
         children.add(
           TextSpan(
             text: value,
-            style: link,
+            style: isUrl ? url : mention,
             mouseCursor: SystemMouseCursors.click,
             recognizer: _tap(() {
               if (!mounted) {
@@ -808,8 +840,10 @@ class _RichPostTextState extends State<_RichPostText> {
               }
               if (value.startsWith('@')) {
                 XFeedLinks.openMention?.call(context, value);
-              } else {
+              } else if (value.startsWith('#')) {
                 XFeedLinks.openSearch?.call(context, query: value);
+              } else {
+                IoHelpers.openUrl(_href(value));
               }
             }),
           ),
