@@ -3,11 +3,43 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../models.dart';
 import '../theme.dart';
 import 'app_layout.dart';
+
+class _NavAssets {
+  static const search = 'assets/images/search.svg';
+  static const media = 'assets/images/media.svg';
+  static const following = 'assets/images/single_focus.svg';
+  static const download = 'assets/images/download.svg';
+  static const category = 'assets/images/focus.svg';
+  static const setting = 'assets/images/setting.svg';
+}
+
+class _NavSvg extends StatelessWidget {
+  const _NavSvg({
+    required this.asset,
+    required this.color,
+    this.size = 18,
+  });
+
+  final String asset;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SvgPicture.asset(
+      asset,
+      width: size.w,
+      height: size.w,
+      colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+    );
+  }
+}
 
 class HomeShell extends StatelessWidget {
   const HomeShell({
@@ -155,38 +187,38 @@ class _BottomNav extends StatelessWidget {
       },
       items: [
         const BottomNavigationBarItem(
-          icon: Icon(Icons.dynamic_feed_outlined),
-          activeIcon: Icon(Icons.dynamic_feed),
+          icon: _NavSvg(asset: _NavAssets.media, color: AppColors.textMuted, size: 22),
+          activeIcon: _NavSvg(asset: _NavAssets.media, color: AppColors.accent, size: 22),
           label: '动态',
         ),
         const BottomNavigationBarItem(
-          icon: Icon(Icons.people_outline),
-          activeIcon: Icon(Icons.people),
+          icon: _NavSvg(asset: _NavAssets.following, color: AppColors.textMuted, size: 22),
+          activeIcon: _NavSvg(asset: _NavAssets.following, color: AppColors.accent, size: 22),
           label: '关注',
         ),
         const BottomNavigationBarItem(
-          icon: Icon(Icons.search_outlined),
-          activeIcon: Icon(Icons.search),
+          icon: _NavSvg(asset: _NavAssets.search, color: AppColors.textMuted, size: 22),
+          activeIcon: _NavSvg(asset: _NavAssets.search, color: AppColors.accent, size: 22),
           label: '搜索',
         ),
         const BottomNavigationBarItem(
-          icon: Icon(Icons.category_outlined),
-          activeIcon: Icon(Icons.category),
+          icon: _NavSvg(asset: _NavAssets.category, color: AppColors.textMuted, size: 22),
+          activeIcon: _NavSvg(asset: _NavAssets.category, color: AppColors.accent, size: 22),
           label: '分类',
         ),
         BottomNavigationBarItem(
           icon: activeCount > 0
               ? Badge(
                   label: Text('$activeCount'),
-                  child: const Icon(Icons.download_outlined),
+                  child: _NavSvg(asset: _NavAssets.download, color: AppColors.textMuted, size: 22),
                 )
-              : const Icon(Icons.download_outlined),
+              : _NavSvg(asset: _NavAssets.download, color: AppColors.textMuted, size: 22),
           activeIcon: activeCount > 0
               ? Badge(
                   label: Text('$activeCount'),
-                  child: const Icon(Icons.download),
+                  child: _NavSvg(asset: _NavAssets.download, color: AppColors.accent, size: 22),
                 )
-              : const Icon(Icons.download),
+              : _NavSvg(asset: _NavAssets.download, color: AppColors.accent, size: 22),
           label: '下载',
         ),
       ],
@@ -219,17 +251,17 @@ class _Sidebar extends StatelessWidget {
               child: SizedBox(height: 28, width: double.infinity),
             ),
           _NavItem(
-            icon: Icons.search,
+            icon: _NavAssets.search,
             label: '搜索',
             selected: page == AppPage.search,
             color: AppColors.accent,
             onTap: () => onSelect(AppPage.search),
           ),
           _NavItem(
-            icon: Icons.dynamic_feed_outlined,
+            icon: _NavAssets.media,
             label: '动态',
             selected: page.isMediaHub,
-            color: AppColors.x,
+            color: AppColors.accent,
             onTap: () {
               if (!page.isMediaHub) {
                 onSelect(AppPage.xFeed);
@@ -237,32 +269,32 @@ class _Sidebar extends StatelessWidget {
             },
           ),
           _NavItem(
-            icon: Icons.people_outline,
+            icon: _NavAssets.following,
             label: '关注',
             selected: page == AppPage.xFollowing || page == AppPage.xAccounts,
-            color: AppColors.x,
+            color: AppColors.accent,
             onTap: () => onSelect(AppPage.xFollowing),
           ),
           _NavItem(
-            icon: Icons.download_outlined,
-            label: '下载任务',
+            icon: _NavAssets.download,
+            label: '下载',
             selected: page == AppPage.downloads,
-            color: AppColors.success,
+            color: AppColors.accent,
             badge: activeCount,
             onTap: () => onSelect(AppPage.downloads),
           ),
           const Spacer(),
           SizedBox(height: 10.h),
           _NavItem(
-            icon: Icons.category_outlined,
+            icon: _NavAssets.category,
             label: '分类',
             selected: page == AppPage.categories,
             color: AppColors.accent,
             onTap: () => onSelect(AppPage.categories),
           ),
           _NavItem(
-            icon: Icons.settings_outlined,
-            label: '设置与代理',
+            icon: _NavAssets.setting,
+            label: '设置',
             selected: page == AppPage.settings,
             color: AppColors.accent,
             onTap: () => onSelect(AppPage.settings),
@@ -376,7 +408,7 @@ class _NavItem extends StatelessWidget {
     this.badge = 0,
   });
 
-  final IconData icon;
+  final String icon;
   final String label;
   final bool selected;
   final Color color;
@@ -397,7 +429,10 @@ class _NavItem extends StatelessWidget {
             padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 10.h),
             child: Row(
               children: [
-                Icon(icon, size: 18.w, color: selected ? color : AppColors.textMuted),
+                _NavSvg(
+                  asset: icon,
+                  color: selected ? color : AppColors.textMuted,
+                ),
                 SizedBox(width: 10.w),
                 Expanded(
                   child: Text(
@@ -405,7 +440,7 @@ class _NavItem extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14.sp,
                       fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                      color: selected ? AppColors.text : AppColors.textMuted,
+                      color: selected ? color : AppColors.textMuted,
                     ),
                   ),
                 ),

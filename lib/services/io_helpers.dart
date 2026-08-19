@@ -75,7 +75,7 @@ class IoHelpers {
       if (!await dir.exists()) {
         continue;
       }
-      final items = await dir.list().toList();
+      final items = await dir.list(recursive: true, followLinks: false).toList();
       for (final item in items.whereType<File>()) {
         final name = item.uri.pathSegments.isEmpty
             ? ''
@@ -144,6 +144,78 @@ class IoHelpers {
         lower.endsWith('.webp');
   }
 
+  static bool isVideoFile(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.mp4') ||
+        lower.endsWith('.mov') ||
+        lower.endsWith('.m4v');
+  }
+
+  static bool isImageFile(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.gif') ||
+        lower.endsWith('.webp');
+  }
+
+  static final Map<String, Future<File?>> _thumbPending = <String, Future<File?>>{};
+
+  static Future<File?> videoThumbnail(String videoPath, {String ffmpegPath = ''}) {
+    final pending = _thumbPending[videoPath];
+    if (pending != null) {
+      return pending;
+    }
+    final future = _makeVideoThumbnail(videoPath, ffmpegPath);
+    _thumbPending[videoPath] = future;
+    return future.whenComplete(() => _thumbPending.remove(videoPath));
+  }
+
+  static Future<File?> _makeVideoThumbnail(String videoPath, String ffmpegPath) async {
+    final video = File(videoPath);
+    if (!await video.exists()) {
+      return null;
+    }
+    final dir = Directory('${supportDir.path}/thumbs');
+    await dir.create(recursive: true);
+    final name = video.uri.pathSegments.isEmpty
+        ? '${videoPath.hashCode.abs()}.jpg'
+        : '${videoPath.hashCode.abs()}_${video.uri.pathSegments.last}.jpg';
+    final safe = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final thumb = File('${dir.path}/$safe');
+    try {
+      if (await thumb.exists()) {
+        final videoTime = await video.lastModified();
+        final thumbTime = await thumb.lastModified();
+        if (!thumbTime.isBefore(videoTime)) {
+          return thumb;
+        }
+      }
+    } catch (_) {}
+    final bin = ffmpegPath.trim().isEmpty ? 'ffmpeg' : ffmpegPath.trim();
+    try {
+      final result = await Process.run(bin, <String>[
+        '-y',
+        '-ss',
+        '0.4',
+        '-i',
+        videoPath,
+        '-frames:v',
+        '1',
+        '-vf',
+        'scale=360:-2',
+        '-q:v',
+        '4',
+        thumb.path,
+      ]);
+      if (result.exitCode == 0 && await thumb.exists() && await thumb.length() > 0) {
+        return thumb;
+      }
+    } catch (_) {}
+    return await thumb.exists() ? thumb : null;
+  }
+
   static Future<void> openPreview(String path) async {
     final file = File(path);
     if (!await file.exists()) {
@@ -205,5 +277,129 @@ class IoHelpers {
         .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+  }
+
+  static String formatSavedStamp(DateTime time) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${time.year}-${two(time.month)}-${two(time.day)}_${two(time.hour)}-${two(time.minute)}-${two(time.second)}';
+  }
+
+  static String formatSavedStampLabel(DateTime time) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${time.year}-${two(time.month)}-${two(time.day)} ${two(time.hour)}:${two(time.minute)}';
+  }
+
+  static Future<Directory> ensurePhotoSaveDir({
+    required String downloadDir,
+    required String category,
+    required String username,
+  }) {
+    final cat = sanitizeFileName(
+      category.trim().isEmpty ? '未分类' : category.trim(),
+    );
+    var user = username.trim().replaceFirst(RegExp(r'^@'), '');
+    if (user.isEmpty) {
+      user = 'unknown';
+    }
+    return ensureDownloadDir('$downloadDir/${sanitizeFileName(cat)}/${sanitizeFileName(user)}');
+  }
+
+  static SavedFileInfo describeSavedFile(File file, String downloadDir) {
+    var category = '';
+    var username = '';
+    final root = downloadDir.replaceAll(r'\', '/').replaceAll(RegExp(r'/+$'), '');
+    final path = file.path.replaceAll(r'\', '/');
+    if (root.isNotEmpty && path.startsWith(root)) {
+      final rel = path.substring(root.length).replaceFirst(RegExp(r'^/+'), '');
+      final parts = rel.split('/');
+      if (parts.length >= 4 && parts.first.toLowerCase() == 'mediadownloader') {
+        category = parts[1];
+        username = parts[2];
+      } else if (parts.length >= 3) {
+        category = parts[0];
+        username = parts[1];
+      }
+    }
+    var downloadedAt = file.lastModifiedSync();
+    var displayName = '';
+    final name = file.uri.pathSegments.isEmpty
+        ? file.path
+        : file.uri.pathSegments.last;
+    final match = RegExp(
+      r'^(.*?)_?(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:_\d+)?\.[^.]+$',
+    ).firstMatch(name);
+    if (match != null) {
+      downloadedAt = DateTime(
+        int.parse(match.group(2)!),
+        int.parse(match.group(3)!),
+        int.parse(match.group(4)!),
+        int.parse(match.group(5)!),
+        int.parse(match.group(6)!),
+        int.parse(match.group(7)!),
+      );
+      displayName = (match.group(1) ?? '').replaceAll(RegExp(r'_+$'), '').trim();
+      if (displayName.toLowerCase() == username.toLowerCase()) {
+        displayName = '';
+      }
+    }
+    return SavedFileInfo(
+      file: file,
+      category: category,
+      username: username,
+      displayName: displayName,
+      downloadedAt: downloadedAt,
+      fileName: name,
+    );
+  }
+}
+
+class SavedFileInfo {
+  const SavedFileInfo({
+    required this.file,
+    required this.category,
+    required this.username,
+    required this.downloadedAt,
+    required this.fileName,
+    this.displayName = '',
+  });
+
+  final File file;
+  final String category;
+  final String username;
+  final String displayName;
+  final DateTime downloadedAt;
+  final String fileName;
+
+  String resolvedName(Map<String, String> names) {
+    if (displayName.trim().isNotEmpty) {
+      return displayName.trim();
+    }
+    if (username.isEmpty) {
+      return '';
+    }
+    return (names[username.toLowerCase()] ?? '').trim();
+  }
+
+  String titleFor(Map<String, String> names) {
+    final name = resolvedName(names);
+    if (name.isNotEmpty) {
+      return name;
+    }
+    if (username.isNotEmpty) {
+      return '@$username';
+    }
+    return fileName;
+  }
+
+  String subtitleFor(Map<String, String> names) {
+    final parts = <String>[];
+    if (username.isNotEmpty) {
+      parts.add('@$username');
+    }
+    if (category.isNotEmpty) {
+      parts.add(category);
+    }
+    parts.add(IoHelpers.formatSavedStampLabel(downloadedAt));
+    return parts.join(' · ');
   }
 }

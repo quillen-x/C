@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:video_player/video_player.dart';
 
 import '../models.dart';
 import '../screens/settings_page.dart';
@@ -21,6 +22,7 @@ class DownloadsPage extends StatefulWidget {
 
 class _DownloadsPageState extends State<DownloadsPage> {
   List<File> _files = <File>[];
+  Map<String, String> _displayNames = <String, String>{};
   String _taskSig = '';
 
   @override
@@ -34,10 +36,21 @@ class _DownloadsPageState extends State<DownloadsPage> {
   }
 
   Future<void> _reloadFiles() async {
-    final dir = AppScope.of(context).settings.downloadDir;
-    final files = await IoHelpers.listSavedFiles(dir);
+    final app = AppScope.of(context);
+    final files = await IoHelpers.listSavedFiles(app.settings.downloadDir);
+    final profiles = await app.accountDb.loadMap();
     if (!mounted) return;
-    setState(() => _files = files);
+    final names = <String, String>{};
+    for (final entry in profiles.entries) {
+      final name = entry.value.name.trim();
+      if (name.isNotEmpty) {
+        names[entry.key] = name;
+      }
+    }
+    setState(() {
+      _files = files.where((file) => !app.isDownloadHidden(file.path)).toList();
+      _displayNames = names;
+    });
   }
 
   Future<void> _open(String path) async {
@@ -67,7 +80,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('删除'),
+              child: const Text('去掉'),
             ),
           ],
         );
@@ -82,26 +95,17 @@ class _DownloadsPageState extends State<DownloadsPage> {
         : file.uri.pathSegments.last;
     final ok = await _confirm(
       title: '删除这条记录？',
-      detail: '将删除文件「$name」。',
+      detail: '只从列表里去掉「$name」，不会删除已下载的文件。',
     );
     if (!ok || !mounted) {
       return;
     }
-    try {
-      if (await file.exists()) {
-        await file.delete();
-      }
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      showAppSnack(context, error.toString(), error: true);
-      return;
-    }
+    final app = AppScope.of(context);
+    app.removeTasksByPath(file.path);
+    await app.hideDownloadRecords([file.path]);
     if (!mounted) {
       return;
     }
-    AppScope.of(context).removeTasksByPath(file.path);
     setState(() {
       _files.removeWhere((item) => item.path == file.path);
     });
@@ -114,24 +118,21 @@ class _DownloadsPageState extends State<DownloadsPage> {
     }
     final ok = await _confirm(
       title: '删除这条记录？',
-      detail: task.title.trim().isEmpty ? '将从下载列表里去掉。' : '将删除「${task.title}」。',
+      detail: task.title.trim().isEmpty
+          ? '只从下载列表里去掉，不会删除已下载的文件。'
+          : '只从列表里去掉「${task.title}」，不会删除已下载的文件。',
     );
     if (!ok || !mounted) {
       return;
     }
+    final app = AppScope.of(context);
+    app.removeTask(task.id);
     if (task.savePath.isNotEmpty) {
-      final file = File(task.savePath);
-      try {
-        if (await file.exists()) {
-          await file.delete();
-        }
-      } catch (_) {}
+      await app.hideDownloadRecords([task.savePath]);
     }
-    if (!mounted) {
-      return;
+    if (mounted) {
+      await _reloadFiles();
     }
-    AppScope.of(context).removeTask(task.id);
-    await _reloadFiles();
   }
 
   Future<void> _clearAll() async {
@@ -148,34 +149,20 @@ class _DownloadsPageState extends State<DownloadsPage> {
     }
     final ok = await _confirm(
       title: '清空全部下载记录？',
-      detail: '会删除列表里的文件，进行中的下载会保留。',
+      detail: '只清空列表，不会删除已下载的文件。进行中的下载会保留。',
     );
     if (!ok || !mounted) {
       return;
     }
-    for (final file in List<File>.from(_files)) {
-      try {
-        if (await file.exists()) {
-          await file.delete();
-        }
-      } catch (_) {}
+    final paths = <String>{
+      ..._files.map((file) => file.path),
+      ...idle.map((task) => task.savePath).where((path) => path.isNotEmpty),
+    };
+    app.clearIdleTasks();
+    await app.hideDownloadRecords(paths);
+    if (mounted) {
+      await _reloadFiles();
     }
-    for (final task in idle) {
-      if (task.savePath.isEmpty) {
-        continue;
-      }
-      try {
-        final file = File(task.savePath);
-        if (await file.exists()) {
-          await file.delete();
-        }
-      } catch (_) {}
-    }
-    if (!mounted) {
-      return;
-    }
-    AppScope.of(context).clearIdleTasks();
-    await _reloadFiles();
   }
 
   @override
@@ -201,87 +188,284 @@ class _DownloadsPageState extends State<DownloadsPage> {
     for (final task in app.tasks) {
       if (task.status == TaskStatus.done &&
           task.savePath.isNotEmpty &&
+          !app.isDownloadHidden(task.savePath) &&
           seen.add(task.savePath) &&
           File(task.savePath).existsSync()) {
         files.insert(0, File(task.savePath));
       }
     }
     final empty = activeTasks.isEmpty && files.isEmpty;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Stack(
       children: [
-        PageHeader(
-          trailing: Wrap(
-            spacing: 8.w,
-            runSpacing: 8.h,
-            children: [
-              if (compact)
-                GhostButton(
-                  label: '设置',
-                  icon: Icons.settings_outlined,
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const Scaffold(
-                          backgroundColor: AppColors.bg,
-                          body: SafeArea(child: SettingsPage()),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            PageHeader(
+              trailing: compact
+                  ? GhostButton(
+                      label: '设置',
+                      icon: Icons.settings_outlined,
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const Scaffold(
+                              backgroundColor: AppColors.bg,
+                              body: SafeArea(child: SettingsPage()),
+                            ),
+                          ),
+                        );
+                      },
+                    )
+                  : null,
+            ),
+            Expanded(
+              child: empty
+                  ? EmptyHint(
+                      icon: Icons.inbox_outlined,
+                      title: '还没有文件',
+                      detail: compact
+                          ? '打开「动态」，在帖子里点下载。完成后会出现在这里，点一下就能看。'
+                          : '打开「动态」或「关注」，在帖子里点下载。',
+                    )
+                  : ListView(
+                      padding: AppLayout.pagePadding(
+                        context,
+                        bottom: AppLayout.mediaHubBarClearance,
+                      ),
+                      children: [
+                        ...activeTasks.map((task) {
+                          return Padding(
+                            padding: EdgeInsets.only(bottom: 10.h),
+                            child: _TaskTile(
+                              task: task,
+                              onDelete: () => _deleteTask(task),
+                            ),
+                          );
+                        }),
+                        ...files.map((file) {
+                          return Padding(
+                            padding: EdgeInsets.only(bottom: 10.h),
+                            child: _FileTile(
+                              file: file,
+                              names: _displayNames,
+                              onOpen: () => _open(file.path),
+                              onShare: () => IoHelpers.openInFinder(file.path),
+                              onDelete: () => _deleteFile(file),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+        if (!empty)
+          Positioned(
+            right: 16.w,
+            bottom: 16.h,
+            child: Material(
+              color: AppColors.surfaceAlt,
+              elevation: 8,
+              shadowColor: Colors.black.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(999.w),
+              child: InkWell(
+                onTap: _clearAll,
+                borderRadius: BorderRadius.circular(999.w),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.delete_sweep_outlined,
+                        size: 18.w,
+                        color: AppColors.danger,
+                      ),
+                      SizedBox(width: 6.w),
+                      Text(
+                        '清空所有记录',
+                        style: TextStyle(
+                          color: AppColors.danger,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13.sp,
                         ),
                       ),
-                    );
-                  },
+                    ],
+                  ),
                 ),
-              GhostButton(
-                label: compact ? '刷新' : '打开下载目录',
-                icon: compact ? Icons.refresh : Icons.folder_open,
-                onPressed: compact
-                    ? _reloadFiles
-                    : () => IoHelpers.openInFinder(app.settings.downloadDir),
               ),
-              if (!empty)
-                GhostButton(
-                  label: '清空记录',
-                  icon: Icons.delete_sweep_outlined,
-                  onPressed: _clearAll,
-                ),
-            ],
+            ),
           ),
-        ),
-        Expanded(
-          child: empty
-              ? EmptyHint(
-                  icon: Icons.inbox_outlined,
-                  title: '还没有文件',
-                  detail: compact
-                      ? '打开「动态」，在帖子里点下载。完成后会出现在这里，点一下就能看。'
-                      : '打开「动态」或「关注」，在帖子里点下载。',
-                )
-              : ListView(
-                  padding: AppLayout.pagePadding(context, bottom: 28),
-                  children: [
-                    ...activeTasks.map((task) {
-                      return Padding(
-                        padding: EdgeInsets.only(bottom: 10.h),
-                        child: _TaskTile(
-                          task: task,
-                          onDelete: () => _deleteTask(task),
-                        ),
-                      );
-                    }),
-                    ...files.map((file) {
-                      return Padding(
-                        padding: EdgeInsets.only(bottom: 10.h),
-                        child: _FileTile(
-                          file: file,
-                          onOpen: () => _open(file.path),
-                          onShare: () => IoHelpers.openInFinder(file.path),
-                          onDelete: () => _deleteFile(file),
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-        ),
       ],
+    );
+  }
+}
+
+class _RecordPreview extends StatefulWidget {
+  const _RecordPreview({
+    required this.file,
+    required this.video,
+    required this.image,
+    required this.ffmpegPath,
+  });
+
+  final File file;
+  final bool video;
+  final bool image;
+  final String ffmpegPath;
+
+  @override
+  State<_RecordPreview> createState() => _RecordPreviewState();
+}
+
+class _RecordPreviewState extends State<_RecordPreview> {
+  File? _thumb;
+  VideoPlayerController? _player;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _RecordPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.file.path != widget.file.path) {
+      _player?.dispose();
+      _player = null;
+      _thumb = null;
+      _ready = false;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    if (widget.image) {
+      if (mounted) {
+        setState(() => _ready = true);
+      }
+      return;
+    }
+    if (!widget.video) {
+      if (mounted) {
+        setState(() => _ready = true);
+      }
+      return;
+    }
+    final thumb = await IoHelpers.videoThumbnail(
+      widget.file.path,
+      ffmpegPath: widget.ffmpegPath,
+    );
+    if (!mounted) {
+      return;
+    }
+    if (thumb != null) {
+      setState(() {
+        _thumb = thumb;
+        _ready = true;
+      });
+      return;
+    }
+    final player = VideoPlayerController.file(widget.file);
+    try {
+      await player.initialize();
+      await player.setVolume(0);
+      await player.pause();
+      if (!mounted) {
+        await player.dispose();
+        return;
+      }
+      setState(() {
+        _player = player;
+        _ready = true;
+      });
+    } catch (_) {
+      await player.dispose();
+      if (mounted) {
+        setState(() => _ready = true);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _player?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(10.w);
+    return ClipRRect(
+      borderRadius: radius,
+      child: SizedBox(
+        width: 96.w,
+        height: 64.w,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ColoredBox(color: AppColors.surfaceAlt, child: _content()),
+            if (widget.video)
+              const ColoredBox(color: Color(0x33000000)),
+            if (widget.video)
+              Center(
+                child: Icon(
+                  Icons.play_circle_fill,
+                  color: Colors.white.withValues(alpha: 0.92),
+                  size: 26.w,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _content() {
+    if (widget.image) {
+      return Image.file(
+        widget.file,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _fallbackIcon(Icons.image_outlined),
+      );
+    }
+    if (_thumb != null) {
+      return Image.file(
+        _thumb!,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _fallbackIcon(Icons.play_circle_fill),
+      );
+    }
+    final player = _player;
+    if (player != null && player.value.isInitialized) {
+      return FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: player.value.size.width,
+          height: player.value.size.height,
+          child: VideoPlayer(player),
+        ),
+      );
+    }
+    if (!_ready) {
+      return Center(
+        child: SizedBox(
+          width: 16.w,
+          height: 16.w,
+          child: CircularProgressIndicator(strokeWidth: 2.w),
+        ),
+      );
+    }
+    return _fallbackIcon(
+      widget.video ? Icons.play_circle_fill : Icons.audiotrack_outlined,
+    );
+  }
+
+  Widget _fallbackIcon(IconData icon) {
+    return Center(
+      child: Icon(icon, color: AppColors.accent, size: 24.w),
     );
   }
 }
@@ -289,26 +473,26 @@ class _DownloadsPageState extends State<DownloadsPage> {
 class _FileTile extends StatelessWidget {
   const _FileTile({
     required this.file,
+    required this.names,
     required this.onOpen,
     required this.onShare,
     required this.onDelete,
   });
 
   final File file;
+  final Map<String, String> names;
   final VoidCallback onOpen;
   final VoidCallback onShare;
   final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
-    final name = file.uri.pathSegments.isEmpty
-        ? file.path
-        : file.uri.pathSegments.last;
-    final video = IoHelpers.isPlayable(name) &&
-        (name.toLowerCase().endsWith('.mp4') ||
-            name.toLowerCase().endsWith('.mov') ||
-            name.toLowerCase().endsWith('.m4v') ||
-            name.toLowerCase().endsWith('.m4a'));
+    final info = IoHelpers.describeSavedFile(
+      file,
+      AppScope.of(context).settings.downloadDir,
+    );
+    final video = IoHelpers.isVideoFile(info.fileName);
+    final image = IoHelpers.isImageFile(info.fileName);
     return Material(
       color: AppColors.surface,
       borderRadius: BorderRadius.circular(16.w),
@@ -316,25 +500,18 @@ class _FileTile extends StatelessWidget {
         onTap: onOpen,
         borderRadius: BorderRadius.circular(16.w),
         child: Container(
-          padding: EdgeInsets.all(16.w),
+          padding: EdgeInsets.all(12.w),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16.w),
+            borderRadius: BorderRadius.circular(12.w),
             border: Border.all(color: AppColors.border),
           ),
           child: Row(
             children: [
-              Container(
-                width: 44.w,
-                height: 44.h,
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(12.w),
-                ),
-                child: Icon(
-                  video ? Icons.play_circle_fill : Icons.image_outlined,
-                  color: AppColors.accent,
-                  size: 24.w,
-                ),
+              _RecordPreview(
+                file: file,
+                video: video,
+                image: image,
+                ffmpegPath: AppScope.of(context).settings.ffmpegPath,
               ),
               SizedBox(width: 12.w),
               Expanded(
@@ -342,14 +519,16 @@ class _FileTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      name,
-                      maxLines: 2,
+                      info.titleFor(names),
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.sp),
                     ),
                     SizedBox(height: 4.h),
                     Text(
-                      video ? '点击播放' : '点击查看',
+                      info.subtitleFor(names),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: AppColors.textMuted,
                         fontSize: 12.sp,
@@ -358,14 +537,7 @@ class _FileTile extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: AppLayout.isIOS ? '分享' : '在访达中显示',
-                onPressed: onShare,
-                icon: Icon(
-                  AppLayout.isIOS ? Icons.ios_share : Icons.folder_open,
-                  color: AppColors.textMuted,
-                ),
-              ),
+            
               IconButton(
                 tooltip: '删除记录',
                 onPressed: onDelete,

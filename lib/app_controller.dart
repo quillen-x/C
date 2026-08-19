@@ -338,6 +338,34 @@ class AppController extends ChangeNotifier {
     return task;
   }
 
+  Future<void> recordDownloadedFile({
+    required String title,
+    required String path,
+    String sourceUrl = '',
+  }) async {
+    final savePath = path.trim();
+    if (savePath.isEmpty) {
+      return;
+    }
+    await revealDownloadRecord(savePath);
+    final exists = tasks.any((task) => task.savePath == savePath);
+    if (!exists) {
+      tasks.insert(
+        0,
+        DownloadTask(
+          id: IoHelpers.uniqueId(),
+          kind: DownloadKind.x,
+          title: title.trim().isEmpty ? savePath : title.trim(),
+          sourceUrl: sourceUrl,
+          status: TaskStatus.done,
+          progress: 1,
+          savePath: savePath,
+        ),
+      );
+    }
+    notifyListeners();
+  }
+
   void removeTask(String id) {
     tasks.removeWhere((task) => task.id == id);
     notifyListeners();
@@ -357,6 +385,44 @@ class AppController extends ChangeNotifier {
       (task) =>
           task.status != TaskStatus.running && task.status != TaskStatus.queued,
     );
+    notifyListeners();
+  }
+
+  bool isDownloadHidden(String path) {
+    final target = path.trim();
+    return target.isNotEmpty && settings.hiddenDownloads.contains(target);
+  }
+
+  Future<void> hideDownloadRecords(Iterable<String> paths) async {
+    final hidden = List<String>.from(settings.hiddenDownloads);
+    var changed = false;
+    for (final raw in paths) {
+      final path = raw.trim();
+      if (path.isEmpty || hidden.contains(path)) {
+        continue;
+      }
+      hidden.add(path);
+      changed = true;
+    }
+    if (!changed) {
+      return;
+    }
+    settings.hiddenDownloads = hidden;
+    await IoHelpers.saveSettings(settings);
+    notifyListeners();
+  }
+
+  Future<void> revealDownloadRecord(String path) async {
+    final target = path.trim();
+    if (target.isEmpty) {
+      return;
+    }
+    final hidden = List<String>.from(settings.hiddenDownloads);
+    if (!hidden.remove(target)) {
+      return;
+    }
+    settings.hiddenDownloads = hidden;
+    await IoHelpers.saveSettings(settings);
     notifyListeners();
   }
 
@@ -393,6 +459,7 @@ class AppController extends ChangeNotifier {
       task.status = TaskStatus.done;
       task.progress = 1;
       task.speed = '';
+      await revealDownloadRecord(path);
       notifyListeners();
       if (Platform.isIOS) {
         await IoHelpers.saveToPhotos(path);

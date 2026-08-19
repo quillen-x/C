@@ -254,7 +254,13 @@ class _PhotoTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(12.w),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => showPostMedia(context, item.post.media, item.index),
+        onTap: () => showPostMedia(
+          context,
+          item.post.media,
+          item.index,
+          username: item.post.username,
+          displayName: item.post.displayName,
+        ),
         child: AspectRatio(
           aspectRatio: _photoRatio(item.media),
           child: Stack(

@@ -64,6 +64,9 @@ class _SettingsPageState extends State<SettingsPage> {
         AppScope.of(context).settings.visibleCategories,
       ),
       categories: List<String>.from(AppScope.of(context).settings.categories),
+      hiddenDownloads: List<String>.from(
+        AppScope.of(context).settings.hiddenDownloads,
+      ),
     );
   }
 
@@ -183,6 +186,17 @@ class _SettingsPageState extends State<SettingsPage> {
                       controller: _dir,
                       hint: IoHelpers.defaultDownloadDir(),
                       prefixIcon: Icons.folder_outlined,
+                    ),
+                    SizedBox(height: 12.h),
+                    GhostButton(
+                      label: '打开下载目录',
+                      icon: Icons.folder_open,
+                      onPressed: () {
+                        final dir = _dir.text.trim().isEmpty
+                            ? IoHelpers.defaultDownloadDir()
+                            : _dir.text.trim();
+                        IoHelpers.openInFinder(dir);
+                      },
                     ),
                   ],
                 ),

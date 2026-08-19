@@ -219,7 +219,11 @@ class _CommentsDialogState extends State<_CommentsDialog> {
           ],
           if (post.media.isNotEmpty) ...[
             SizedBox(height: 10.h),
-            _MomentsMediaGrid(media: post.media),
+            _MomentsMediaGrid(
+              media: post.media,
+              username: post.username,
+              displayName: post.displayName,
+            ),
           ],
           if (post.publishedAt != null) ...[
             SizedBox(height: 8.h),
@@ -334,7 +338,11 @@ class _CommentsDialogState extends State<_CommentsDialog> {
           ],
           if (reply.media.isNotEmpty) ...[
             SizedBox(height: 8.h),
-            _MomentsMediaGrid(media: reply.media),
+            _MomentsMediaGrid(
+              media: reply.media,
+              username: reply.username,
+              displayName: reply.displayName,
+            ),
           ],
         ],
       ),
@@ -664,7 +672,12 @@ class _PostCardState extends State<PostCard> {
           ],
           if (post.media.isNotEmpty) ...[
             SizedBox(height: dense ? 6.h : 10.h),
-            _PostMediaGrid(media: post.media, dense: dense),
+            _PostMediaGrid(
+              media: post.media,
+              dense: dense,
+              username: post.username,
+              displayName: post.displayName,
+            ),
           ],
           if (!dense && (widget.onOpen != null || widget.onComments != null)) ...[
             SizedBox(height: 10.h),
@@ -796,22 +809,20 @@ class _RichPostTextState extends State<_RichPostText> {
     return 'https://$value';
   }
 
-  TextStyle _tokenStyle(TextStyle base, {required bool underline}) {
+  TextStyle _tokenStyle(TextStyle base) {
     return TextStyle(
       height: base.height,
       fontSize: base.fontSize,
       fontWeight: FontWeight.w700,
       color: AppColors.accent,
-      decoration: underline ? TextDecoration.underline : TextDecoration.none,
-      decorationColor: underline ? AppColors.accent : null,
+      decoration: TextDecoration.none,
     );
   }
 
   TextSpan _span() {
     _clearRecognizers();
     final base = widget.style;
-    final mention = _tokenStyle(base, underline: false);
-    final url = _tokenStyle(base, underline: true);
+    final link = _tokenStyle(base);
     final children = <InlineSpan>[];
     final text = widget.text;
     var start = 0;
@@ -832,7 +843,7 @@ class _RichPostTextState extends State<_RichPostText> {
         children.add(
           TextSpan(
             text: value,
-            style: isUrl ? url : mention,
+            style: link,
             mouseCursor: SystemMouseCursors.click,
             recognizer: _tap(() {
               if (!mounted) {
@@ -881,9 +892,15 @@ class _RichPostTextState extends State<_RichPostText> {
 }
 
 class _MomentsMediaGrid extends StatelessWidget {
-  const _MomentsMediaGrid({required this.media});
+  const _MomentsMediaGrid({
+    required this.media,
+    this.username = '',
+    this.displayName = '',
+  });
 
   final List<XMedia> media;
+  final String username;
+  final String displayName;
 
   @override
   Widget build(BuildContext context) {
@@ -912,6 +929,8 @@ class _MomentsMediaGrid extends StatelessWidget {
                   item: items[i],
                   media: media,
                   index: i,
+                  username: username,
+                  displayName: displayName,
                 ),
               ),
           ],
@@ -946,17 +965,30 @@ class _MomentsMediaGrid extends StatelessWidget {
       child: SizedBox(
         width: width,
         height: height,
-        child: _MediaThumb(item: item, media: media, index: 0),
+        child: _MediaThumb(
+          item: item,
+          media: media,
+          index: 0,
+          username: username,
+          displayName: displayName,
+        ),
       ),
     );
   }
 }
 
 class _PostMediaGrid extends StatelessWidget {
-  const _PostMediaGrid({required this.media, this.dense = false});
+  const _PostMediaGrid({
+    required this.media,
+    this.dense = false,
+    this.username = '',
+    this.displayName = '',
+  });
 
   final List<XMedia> media;
   final bool dense;
+  final String username;
+  final String displayName;
 
   @override
   Widget build(BuildContext context) {
@@ -976,7 +1008,13 @@ class _PostMediaGrid extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _MediaThumb(item: item, media: media, index: 0),
+            _MediaThumb(
+              item: item,
+              media: media,
+              index: 0,
+              username: username,
+              displayName: displayName,
+            ),
             if (media.length > 1)
               Positioned(
                 right: 6.w,
@@ -1019,6 +1057,8 @@ class _PostMediaGrid extends StatelessWidget {
                   item: items[i],
                   media: media,
                   index: i,
+                  username: username,
+                  displayName: displayName,
                 ),
               ),
           ],
@@ -1033,11 +1073,15 @@ class _MediaThumb extends StatelessWidget {
     required this.item,
     required this.media,
     required this.index,
+    this.username = '',
+    this.displayName = '',
   });
 
   final XMedia item;
   final List<XMedia> media;
   final int index;
+  final String username;
+  final String displayName;
 
   @override
   Widget build(BuildContext context) {
@@ -1045,7 +1089,13 @@ class _MediaThumb extends StatelessWidget {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: () => showPostMedia(context, media, index),
+        onTap: () => showPostMedia(
+          context,
+          media,
+          index,
+          username: username,
+          displayName: displayName,
+        ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10.w),
           child: Stack(

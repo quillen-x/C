@@ -11,7 +11,13 @@ import '../theme.dart';
 import 'app_scope.dart';
 import 'common.dart';
 
-void showPostMedia(BuildContext context, List<XMedia> media, int index) {
+void showPostMedia(
+  BuildContext context,
+  List<XMedia> media,
+  int index, {
+  String username = '',
+  String displayName = '',
+}) {
   if (media.isEmpty || index < 0 || index >= media.length) {
     return;
   }
@@ -40,6 +46,8 @@ void showPostMedia(BuildContext context, List<XMedia> media, int index) {
       pageBuilder: (_, __, ___) => _PhotoViewerPage(
         photos: photos.isEmpty ? <XMedia>[item] : photos,
         initialIndex: start,
+        username: username,
+        displayName: displayName,
       ),
     ),
   );
@@ -49,10 +57,14 @@ class _PhotoViewerPage extends StatefulWidget {
   const _PhotoViewerPage({
     required this.photos,
     required this.initialIndex,
+    this.username = '',
+    this.displayName = '',
   });
 
   final List<XMedia> photos;
   final int initialIndex;
+  final String username;
+  final String displayName;
 
   @override
   State<_PhotoViewerPage> createState() => _PhotoViewerPageState();
@@ -92,17 +104,43 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
     setState(() => _downloading = true);
     try {
       final app = AppScope.of(context);
-      final dir = await IoHelpers.ensureDownloadDir(app.settings.downloadDir);
       final url = _current.originalUrl.trim().isEmpty
           ? _current.url.trim()
           : _current.originalUrl.trim();
       if (url.isEmpty) {
         throw StateError('没有可下载的图片地址');
       }
-      final path = await _savePhoto(url, dir.path);
+      final username = widget.username.trim().replaceFirst(RegExp(r'^@'), '');
+      var category = '未分类';
+      var displayName = widget.displayName.trim();
+      if (username.isNotEmpty) {
+        final accounts = await app.accountDb.loadMap();
+        final account = accounts[username.toLowerCase()];
+        category = XAccount.categoryLabel(account?.category ?? '');
+        if (displayName.isEmpty) {
+          displayName = (account?.name ?? '').trim();
+        }
+      }
+      final dir = await IoHelpers.ensurePhotoSaveDir(
+        downloadDir: app.settings.downloadDir,
+        category: category,
+        username: username,
+      );
+      final path = await _savePhoto(
+        url,
+        dir.path,
+        displayName: displayName.isEmpty ? username : displayName,
+      );
       if (Platform.isIOS) {
         await IoHelpers.saveToPhotos(path);
       }
+      await app.recordDownloadedFile(
+        title: displayName.isNotEmpty
+            ? (username.isEmpty ? displayName : '$displayName @$username')
+            : (username.isEmpty ? '图片' : '@$username'),
+        path: path,
+        sourceUrl: url,
+      );
       if (!mounted) {
         return;
       }
@@ -119,7 +157,11 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
     }
   }
 
-  Future<String> _savePhoto(String url, String dir) async {
+  Future<String> _savePhoto(
+    String url,
+    String dir, {
+    String displayName = '',
+  }) async {
     final uri = Uri.parse(url);
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 20);
@@ -138,10 +180,18 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
         uri.path,
         response.headers.contentType?.mimeType ?? '',
       );
-      final name = IoHelpers.sanitizeFileName(
-        'x-photo-${DateTime.now().millisecondsSinceEpoch}$ext',
+      final stamp = IoHelpers.formatSavedStamp(DateTime.now());
+      final label = IoHelpers.sanitizeFileName(
+        displayName.trim().isEmpty ? stamp : '${displayName.trim()}_$stamp',
       );
-      final path = '$dir/$name';
+      var name = '$label$ext';
+      var path = '$dir/$name';
+      var index = 2;
+      while (await File(path).exists()) {
+        name = '${label}_$index$ext';
+        path = '$dir/$name';
+        index += 1;
+      }
       final file = File(path);
       final sink = file.openWrite();
       try {

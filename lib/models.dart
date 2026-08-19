@@ -29,6 +29,7 @@ class AppSettings {
     List<String>? xFollowing,
     List<String>? visibleCategories,
     List<String>? categories,
+    List<String>? hiddenDownloads,
   }) : xFollowing = xFollowing == null
             ? <String>[]
             : List<String>.from(xFollowing),
@@ -37,7 +38,10 @@ class AppSettings {
             : List<String>.from(visibleCategories),
         categories = categories == null
             ? <String>[]
-            : List<String>.from(categories);
+            : List<String>.from(categories),
+        hiddenDownloads = hiddenDownloads == null
+            ? <String>[]
+            : List<String>.from(hiddenDownloads);
 
   bool proxyEnabled;
   String proxyHost;
@@ -47,6 +51,7 @@ class AppSettings {
   List<String> xFollowing;
   List<String> visibleCategories;
   List<String> categories;
+  List<String> hiddenDownloads;
 
   String get proxyAddress {
     final host = proxyHost.trim();
@@ -83,6 +88,7 @@ class AppSettings {
       'xFollowing': xFollowing,
       'visibleCategories': visibleCategories,
       'categories': categories,
+      'hiddenDownloads': hiddenDownloads,
     };
   }
 
@@ -106,6 +112,10 @@ class AppSettings {
           .toList(),
       visibleCategories: _stringList(json['visibleCategories'], keepEmpty: true),
       categories: _stringList(json['categories']),
+      hiddenDownloads: (json['hiddenDownloads'] as List<dynamic>? ?? <dynamic>[])
+          .map((item) => '$item'.trim())
+          .where((item) => item.isNotEmpty)
+          .toList(),
     );
   }
 
