@@ -186,8 +186,9 @@ class _XFeedPageState extends State<XFeedPage> {
     return PostWaterfall(
       posts: _posts,
       controller: _scroll,
-      columns: AppLayout.isCompact(context) ? 2 : 4,
+      columns: AppLayout.isCompact(context) ? 2 : 3,
       showAuthor: true,
+      textSize: 14.sp,
       loadingMore: _loading,
       hasMore: _loading,
       onDownload: _downloadPost,
@@ -2092,7 +2093,7 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
                               post: _posts[index],
                               onDownload: _downloadPost,
                               onTap: () => showPostComments(context, _posts[index]),
-                              textSize: 15.sp,
+                              textSize: 16.sp,
                               textWeight: FontWeight.w300,
                             );
                           },

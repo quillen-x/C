@@ -471,68 +471,46 @@ class _XSearchPageState extends State<XSearchPage> {
   }
 
   Widget _searchBar() {
-    const barHeight = 40.0;
     const actionHeight = 28.0;
-    return Container(
-      height: barHeight.h,
-      padding: EdgeInsets.fromLTRB(10.w, 0, 6.w, 0),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(12.w),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.search, color: AppColors.textMuted, size: 18.w),
-          SizedBox(width: 8.w),
-          Expanded(
-            child: TextField(
-              controller: _query,
-              style: TextStyle(color: AppColors.text, fontSize: 14.sp, height: 1.2),
-              cursorColor: AppColors.accent,
-              textAlignVertical: TextAlignVertical.center,
-              onSubmitted: (_) => _search(),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: _searchUsers ? '名字或 @用户名' : '关键词、#话题 或 @用户',
-                hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 14.sp, height: 1.2),
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                contentPadding: EdgeInsets.only(bottom: 4.h),
-              ),
-            ),
+    final busy = _searchUsers ? _usersLoading : _postsLoading;
+    return Row(
+      children: [
+        Expanded(
+          child: InlineActionField(
+            controller: _query,
+            hint: _searchUsers ? '名字或 @用户名' : '关键词、#话题 或 @用户',
+            actionLabel: '搜索',
+            busy: busy,
+            onAction: () => _search(),
           ),
-          SizedBox(width: 8.w),
-          for (final kind in _kinds) ...[
+        ),
+        SizedBox(width: 8.w),
+        for (final kind in _kinds) ...[
+          _chip(
+            label: kind.label,
+            selected: _kind == kind.id,
+            height: actionHeight,
+            onTap: () => _switchKind(kind.id),
+          ),
+          SizedBox(width: 6.w),
+        ],
+        if (!_searchUsers)
+          for (final feed in _feeds) ...[
             _chip(
-              label: kind.label,
-              selected: _kind == kind.id,
+              label: feed.label,
+              selected: _feed == feed.id,
               height: actionHeight,
-              onTap: () => _switchKind(kind.id),
+              onTap: () {
+                if (_feed == feed.id) {
+                  return;
+                }
+                setState(() => _feed = feed.id);
+                _search();
+              },
             ),
             SizedBox(width: 6.w),
           ],
-          if (!_searchUsers) ...[
-            for (final feed in _feeds) ...[
-              _chip(
-                label: feed.label,
-                selected: _feed == feed.id,
-                height: actionHeight,
-                onTap: () {
-                  if (_feed == feed.id) {
-                    return;
-                  }
-                  setState(() => _feed = feed.id);
-                  _search();
-                },
-              ),
-              SizedBox(width: 6.w),
-            ],
-          ],
-          _searchAction(height: actionHeight),
-        ],
-      ),
+      ],
     );
   }
 
@@ -569,41 +547,6 @@ class _XSearchPageState extends State<XSearchPage> {
     );
   }
 
-  Widget _searchAction({required double height}) {
-    final busy = _searchUsers ? _usersLoading : _postsLoading;
-    return Material(
-      color: AppColors.x,
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        onTap: busy ? null : () => _search(),
-        borderRadius: BorderRadius.circular(999),
-        child: SizedBox(
-          height: height.h,
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 12.w),
-            child: Center(
-              child: busy
-                  ? SizedBox(
-                      width: 14.w,
-                      height: 14.w,
-                      child: CircularProgressIndicator(strokeWidth: 2.w, color: Colors.black),
-                    )
-                  : Text(
-                      '搜索',
-                      style: TextStyle(
-                        fontSize: 12.sp,
-                        height: 1.1,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black,
-                      ),
-                    ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildPostsPane() {
     if (_postsLoading && _posts.isEmpty) {
       return const Center(child: CircularProgressIndicator());
@@ -630,6 +573,7 @@ class _XSearchPageState extends State<XSearchPage> {
       controller: _postsScroll,
       columns: widget.dialog || compact ? 2 : 3,
       showAuthor: true,
+      textSize: 14.sp,
       loadingMore: _postsLoadingMore,
       hasMore: _hasMorePosts,
       onDownload: _downloadPost,

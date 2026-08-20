@@ -723,7 +723,6 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
   final TextEditingController _query = TextEditingController();
   final TextEditingController _followersMax = TextEditingController();
   final TextEditingController _tweetsMax = TextEditingController();
-  final TextEditingController _followingMax = TextEditingController();
   final TextEditingController _descKeyword = TextEditingController();
   final TextEditingController _inactiveDays = TextEditingController(text: '15');
   final ScrollController _hScroll = ScrollController();
@@ -753,7 +752,6 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
     _query.dispose();
     _followersMax.dispose();
     _tweetsMax.dispose();
-    _followingMax.dispose();
     _descKeyword.dispose();
     _inactiveDays.dispose();
     _hScroll.dispose();
@@ -960,20 +958,6 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
       detail: (count) => '将取消关注并删除推文少于 $max 的 $count 个账号，不可恢复。',
       match: (account) => account.tweets < max,
       emptyMessage: '没有推文少于 $max 的关注',
-    );
-  }
-
-  Future<void> _purgeFollowingLessThan() async {
-    final max = int.tryParse(_followingMax.text.trim());
-    if (max == null || max < 0) {
-      showAppSnack(context, '请输入有效的关注数，例如 100', error: true);
-      return;
-    }
-    await _purgeWhere(
-      title: '删除关注过少的账号',
-      detail: (count) => '将取消关注并删除关注数少于 $max 的 $count 个账号，不可恢复。',
-      match: (account) => account.following < max,
-      emptyMessage: '没有关注数少于 $max 的账号',
     );
   }
 
@@ -1272,14 +1256,6 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
                           controller: _tweetsMax,
                           hint: '推文',
                           onDelete: _busy ? null : _purgeTweetsLessThan,
-                        ),
-                      ),
-                      SizedBox(width: 8.w),
-                      Expanded(
-                        child: _purgeField(
-                          controller: _followingMax,
-                          hint: '关注',
-                          onDelete: _busy ? null : _purgeFollowingLessThan,
                         ),
                       ),
                       SizedBox(width: 8.w),
