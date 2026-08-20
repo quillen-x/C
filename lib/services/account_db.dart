@@ -177,18 +177,6 @@ class AccountDb {
     await deleteUsernames(<String>[username]);
   }
 
-  Future<List<String>> usernamesWithTweetsLessThan(int maxTweets) async {
-    return _usernamesWhere('tweets < ?', <Object>[maxTweets]);
-  }
-
-  Future<List<String>> usernamesWithFollowersLessThan(int maxFollowers) async {
-    return _usernamesWhere('followers < ?', <Object>[maxFollowers]);
-  }
-
-  Future<List<String>> usernamesWithEmptyDescription() async {
-    return _usernamesWhere("TRIM(description) = ''");
-  }
-
   Future<List<String>> usernamesInCategory(String category) async {
     return _usernamesWhere(
       'LOWER(TRIM(category)) = ?',

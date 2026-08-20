@@ -94,23 +94,13 @@ class _SettingsPageState extends State<SettingsPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageHeader(
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (Navigator.of(context).canPop())
-                IconButton(
+          trailing: Navigator.of(context).canPop()
+              ? IconButton(
                   tooltip: '返回',
                   onPressed: () => Navigator.of(context).pop(),
                   icon: Icon(Icons.arrow_back_ios_new, size: 18.w),
-                ),
-              PrimaryButton(
-                label: _saving ? '保存中' : '保存设置',
-                icon: Icons.save_outlined,
-                busy: _saving,
-                onPressed: _save,
-              ),
-            ],
-          ),
+                )
+              : null,
         ),
         Expanded(
           child: ListView(
@@ -178,7 +168,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     Text(
                       AppLayout.isIOS
                           ? '下载完成后会写入相册。也可在「下载」页点分享，或到「文件」App → 浏览 → 我的 iPhone → C。'
-                          : '默认保存到系统下载文件夹下的 MediaDownloader。',
+                          : '默认保存到文稿（Documents）下的 MediaDownloader。',
                       style: TextStyle(color: AppColors.textMuted, height: 1.5, fontSize: 13.sp),
                     ),
                     SizedBox(height: 12.h),
@@ -232,6 +222,16 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                   ],
+                ),
+              ),
+              SizedBox(height: 20.h),
+              SizedBox(
+                width: double.infinity,
+                child: PrimaryButton(
+                  label: _saving ? '保存中' : '保存设置',
+                  icon: Icons.save_outlined,
+                  busy: _saving,
+                  onPressed: _save,
                 ),
               ),
             ],

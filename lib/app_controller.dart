@@ -305,19 +305,30 @@ class AppController extends ChangeNotifier {
     return settings.showsCategory(account.category);
   }
 
-  Future<List<XAccount>> visibleAccounts() async {
+  Future<List<XAccount>> visibleAccounts({bool specialOnly = false}) async {
     final rows = await accountDb.loadAll();
-    return rows.where(showsAccount).toList();
+    return rows.where((account) {
+      if (specialOnly && !account.special) {
+        return false;
+      }
+      return showsAccount(account);
+    }).toList();
   }
 
-  Future<List<String>> visibleUsernames({List<String>? from}) async {
+  Future<List<String>> visibleUsernames({
+    List<String>? from,
+    bool specialOnly = false,
+  }) async {
     final allowed = from ??
         (await accountDb.loadAll()).map((account) => account.username).toList();
     final map = await accountDb.loadMap();
     return allowed.where((username) {
       final account = map[username.toLowerCase()];
       if (account == null) {
-        return settings.showsCategory('');
+        return !specialOnly && settings.showsCategory('');
+      }
+      if (specialOnly && !account.special) {
+        return false;
       }
       return showsAccount(account);
     }).toList();
@@ -424,6 +435,81 @@ class AppController extends ChangeNotifier {
     settings.hiddenDownloads = hidden;
     await IoHelpers.saveSettings(settings);
     notifyListeners();
+  }
+
+  DownloadTask? activeTaskFor(String sourceUrl) {
+    final source = sourceUrl.trim();
+    if (source.isEmpty) {
+      return null;
+    }
+    for (final task in tasks) {
+      if (task.sourceUrl == source &&
+          (task.status == TaskStatus.running ||
+              task.status == TaskStatus.queued)) {
+        return task;
+      }
+    }
+    return null;
+  }
+
+  Future<DownloadTask> downloadDirectMedia({
+    required String url,
+    String username = '',
+    String displayName = '',
+    String ext = '.mp4',
+  }) async {
+    final source = url.trim();
+    if (source.isEmpty) {
+      throw StateError('没有可下载的地址');
+    }
+    final existing = activeTaskFor(source);
+    if (existing != null) {
+      return existing;
+    }
+    final user = username.trim().replaceFirst(RegExp(r'^@'), '');
+    var name = displayName.trim();
+    final title = name.isNotEmpty
+        ? (user.isEmpty ? name : '$name @$user')
+        : (user.isEmpty ? '视频' : '@$user');
+    final task = enqueue(title: title, sourceUrl: source);
+    return _run(task, () async {
+      var category = '未分类';
+      if (user.isNotEmpty) {
+        final account = await accountDb.get(user);
+        if (account != null) {
+          category = XAccount.categoryLabel(account.category);
+          if (name.isEmpty) {
+            name = account.name.trim();
+          }
+        }
+      }
+      final dir = await IoHelpers.ensurePhotoSaveDir(
+        downloadDir: settings.downloadDir,
+        category: category,
+        username: user,
+      );
+      final stamp = IoHelpers.formatSavedStamp(DateTime.now());
+      final label = IoHelpers.sanitizeFileName(
+        name.isNotEmpty
+            ? '${name}_$stamp'
+            : (user.isNotEmpty ? '${user}_$stamp' : stamp),
+      );
+      final path = await IoHelpers.uniqueSavePath(
+        dir: dir.path,
+        label: label,
+        ext: ext,
+      );
+      await IoHelpers.downloadFile(
+        source,
+        path,
+        onProgress: (progress, speed) {
+          task.progress = progress;
+          task.speed = speed;
+          notifyListeners();
+        },
+      );
+      return path;
+    });
   }
 
   Future<DownloadTask> downloadVideo({

@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -53,6 +54,7 @@ class AppTextField extends StatelessWidget {
       controller: controller,
       obscureText: obscureText,
       onSubmitted: onSubmitted,
+      textAlignVertical: TextAlignVertical.center,
       style: TextStyle(color: AppColors.text, fontSize: 14.sp),
       cursorColor: AppColors.accent,
       decoration: InputDecoration(
@@ -160,25 +162,44 @@ class GhostButton extends StatelessWidget {
     required this.label,
     required this.onPressed,
     this.icon,
+    this.height,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
+  final double? height;
 
   @override
   Widget build(BuildContext context) {
+    final style = OutlinedButton.styleFrom(
+      foregroundColor: AppColors.text,
+      side: const BorderSide(color: AppColors.border),
+      padding: EdgeInsets.symmetric(
+        horizontal: 14.w,
+        vertical: height == null ? 12.h : 0,
+      ),
+      minimumSize: height == null ? null : Size(0, height!),
+      maximumSize: height == null ? null : Size(double.infinity, height!),
+      fixedSize: height == null ? null : Size.fromHeight(height!),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.standard,
+      alignment: Alignment.center,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.w)),
+      textStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.sp),
+    );
+    if (icon == null) {
+      return OutlinedButton(
+        onPressed: onPressed,
+        style: style,
+        child: Text(label),
+      );
+    }
     return OutlinedButton.icon(
       onPressed: onPressed,
-      icon: Icon(icon ?? Icons.folder_open, size: 16.w),
+      icon: Icon(icon, size: 16.w),
       label: Text(label),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.text,
-        side: const BorderSide(color: AppColors.border),
-        padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.w)),
-        textStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.sp),
-      ),
+      style: style,
     );
   }
 }
@@ -266,6 +287,91 @@ class EmptyHint extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class AppNetworkImage extends StatelessWidget {
+  const AppNetworkImage({
+    super.key,
+    required this.url,
+    this.fit = BoxFit.cover,
+    this.width,
+    this.height,
+    this.memCacheWidth,
+    this.filterQuality = FilterQuality.low,
+    this.placeholder,
+    this.error,
+  });
+
+  static const headers = <String, String>{
+    'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Referer': 'https://x.com/',
+  };
+
+  final String url;
+  final BoxFit fit;
+  final double? width;
+  final double? height;
+  final int? memCacheWidth;
+  final FilterQuality filterQuality;
+  final Widget? placeholder;
+  final Widget? error;
+
+  @override
+  Widget build(BuildContext context) {
+    if (url.trim().isEmpty) {
+      return error ?? placeholder ?? const SizedBox.shrink();
+    }
+    final fallback = placeholder ?? ColoredBox(color: AppColors.surface);
+    return CachedNetworkImage(
+      imageUrl: url.trim(),
+      httpHeaders: headers,
+      fit: fit,
+      width: width,
+      height: height,
+      memCacheWidth: memCacheWidth,
+      filterQuality: filterQuality,
+      fadeInDuration: const Duration(milliseconds: 80),
+      fadeOutDuration: Duration.zero,
+      placeholder: (_, __) => fallback,
+      errorWidget: (_, __, ___) => error ?? fallback,
+    );
+  }
+}
+
+class XAvatar extends StatelessWidget {
+  const XAvatar({required this.url, required this.size});
+
+  final String url;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final side = size.w;
+    return ClipOval(
+      child: ColoredBox(
+        color: AppColors.surfaceAlt,
+        child: url.isEmpty
+            ? SizedBox(
+                width: side,
+                height: side,
+                child: Icon(Icons.person, size: (size * 0.57).w, color: AppColors.textMuted),
+              )
+            : AppNetworkImage(
+                url: url,
+                width: side,
+                height: side,
+                fit: BoxFit.cover,
+                memCacheWidth: (side * 2).round().clamp(48, 256),
+                error: SizedBox(
+                  width: side,
+                  height: side,
+                  child: Icon(Icons.person, size: (size * 0.57).w, color: AppColors.textMuted),
+                ),
+              ),
       ),
     );
   }

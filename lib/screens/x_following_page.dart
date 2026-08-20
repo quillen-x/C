@@ -24,6 +24,7 @@ class _XFeedPageState extends State<XFeedPage> {
   List<XPost> _posts = <XPost>[];
   bool _loading = false;
   bool _started = false;
+  bool _noSpecial = false;
   String? _error;
   int _loadId = 0;
 
@@ -39,10 +40,14 @@ class _XFeedPageState extends State<XFeedPage> {
       _started = true;
       _loading = true;
       _error = null;
+      _noSpecial = false;
       _posts = <XPost>[];
     });
     final app = AppScope.of(context);
-    final names = await app.visibleUsernames(from: app.settings.xFollowing);
+    final names = await app.visibleUsernames(
+      from: app.settings.xFollowing,
+      specialOnly: true,
+    );
     final profiles = await app.accountDb.loadMap();
     if (!mounted || id != _loadId) {
       return;
@@ -56,6 +61,7 @@ class _XFeedPageState extends State<XFeedPage> {
         setState(() {
           _posts = <XPost>[];
           _error = null;
+          _noSpecial = true;
         });
         return;
       }
@@ -153,6 +159,13 @@ class _XFeedPageState extends State<XFeedPage> {
         detail: '到「分类」打开要看的类别。',
       );
     }
+    if (_noSpecial) {
+      return const EmptyHint(
+        icon: Icons.favorite_border_rounded,
+        title: '还没有特别关注',
+        detail: '当前分类里没有特别关注的账号。到「关注」里给想看的人点特别关注，这里只会加载这些人的内容。',
+      );
+    }
     if (_error != null && _posts.isEmpty) {
       return EmptyHint(
         icon: Icons.wifi_off_rounded,
@@ -165,19 +178,19 @@ class _XFeedPageState extends State<XFeedPage> {
         icon: Icons.article_outlined,
         title: _loading ? '正在加载今天的帖子' : '今天还没有新帖子',
         detail: _loading
-            ? '正在读取当前分类下关注的人。'
-            : '当前分类里，关注的人今天还没有发帖。',
+            ? '正在读取特别关注的人。'
+            : '特别关注的人今天还没有发帖。',
       );
     }
     return PostWaterfall(
       posts: _posts,
       controller: _scroll,
-      columns: AppLayout.isCompact(context) ? 2 : 5,
+      columns: AppLayout.isCompact(context) ? 2 : 4,
       showAuthor: true,
       loadingMore: _loading,
       hasMore: _loading,
       onDownload: _downloadPost,
-      padding: EdgeInsets.fromLTRB(12.w, 12.h, 12.w, AppLayout.mediaHubBarClearance.h),
+      padding: EdgeInsets.fromLTRB(12.w, 16.h, 12.w, AppLayout.mediaHubBarClearance.h),
     );
   }
 }
@@ -331,21 +344,34 @@ class _XFollowingPageState extends State<XFollowingPage> {
 
   Future<void> _remove(String username) async {
     final app = AppScope.of(context);
+    final visible = _visibleFollowing;
+    final removedIndex = visible.indexWhere(
+      (name) => name.toLowerCase() == username.toLowerCase(),
+    );
+    final wasSelected = _selected?.toLowerCase() == username.toLowerCase();
     await app.unfollowXAccount(username);
     if (!mounted) return;
     setState(() {
       _profiles.remove(username.toLowerCase());
-      if (_selected?.toLowerCase() == username.toLowerCase()) {
+      if (wasSelected) {
         final names = _visibleFollowing;
-        _selected = names.isEmpty ? null : names.first;
+        if (names.isEmpty) {
+          _selected = null;
+          _mobileDetail = false;
+        } else if (removedIndex >= names.length) {
+          _selected = names.last;
+        } else if (removedIndex >= 0) {
+          _selected = names[removedIndex];
+        } else {
+          _selected = names.first;
+        }
         _posts = <XPost>[];
         _postsCursor = null;
         _postsPages = 0;
         _related = <XAccount>[];
-        _mobileDetail = false;
       }
     });
-    if (_selected != null) {
+    if (wasSelected && _selected != null) {
       await _select(_selected!);
     }
   }
@@ -745,7 +771,7 @@ class _XFollowingPageState extends State<XFollowingPage> {
                 : Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(width: 260.w,
+                      SizedBox(width: 250.w,
                         child: _AccountList(
                           names: names,
                           selected: _selected,
@@ -1101,6 +1127,7 @@ class _DetailPane extends StatelessWidget {
                         child: PostWaterfall(
                           posts: posts,
                           controller: postsScroll,
+                          columns: 2,
                           loadingMore: loadingMore,
                           hasMore: hasMore,
                           onDownload: onDownload,

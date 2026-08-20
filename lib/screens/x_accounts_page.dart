@@ -462,7 +462,7 @@ class _XAccountsPageState extends State<XAccountsPage> {
                             child: InkWell(
                               onTap: () => showAccountHome(context, account),
                               customBorder: const CircleBorder(),
-                              child: _Avatar(url: account.avatarUrl, size: 22),
+                              child: XAvatar(url: account.avatarUrl, size: 22),
                             ),
                           ),
                         ),
@@ -578,28 +578,3 @@ class _SheetColumn {
   final bool wrap;
 }
 
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.url, required this.size});
-
-  final String url;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final side = size.w;
-    return ClipOval(
-      child: ColoredBox(
-        color: AppColors.bg,
-        child: url.isEmpty
-            ? SizedBox(width: side, height: side)
-            : Image.network(
-                url,
-                width: side,
-                height: side,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => SizedBox(width: side, height: side),
-              ),
-      ),
-    );
-  }
-}

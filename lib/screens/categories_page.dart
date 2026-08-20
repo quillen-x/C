@@ -20,8 +20,6 @@ class CategoriesPage extends StatefulWidget {
 
 class _CategoriesPageState extends State<CategoriesPage> {
   final TextEditingController _newCategory = TextEditingController();
-  final TextEditingController _purgeTweets = TextEditingController(text: '50');
-  final TextEditingController _purgeFollowers = TextEditingController(text: '100');
   Map<String, int> _categoryCounts = <String, int>{};
   List<String> _visibleCategories = <String>[];
   List<String> _categories = <String>[];
@@ -51,8 +49,6 @@ class _CategoriesPageState extends State<CategoriesPage> {
   @override
   void dispose() {
     _newCategory.dispose();
-    _purgeTweets.dispose();
-    _purgeFollowers.dispose();
     super.dispose();
   }
 
@@ -189,7 +185,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
     }
   }
 
-  Future<void> _clearCategory(String category) async {
+  Future<void> _deleteCategory(String category) async {
     if (_purging || _syncingCategory != null) {
       return;
     }
@@ -199,13 +195,12 @@ class _CategoriesPageState extends State<CategoriesPage> {
     if (!mounted) {
       return;
     }
-    if (names.isEmpty) {
-      showAppSnack(context, '「$label」里没有关注人');
-      return;
-    }
+    final detail = names.isEmpty
+        ? '将删除分类「$label」，不可恢复。'
+        : '将取消关注并删除「$label」下的 ${names.length} 个账号，同时删除该分类，不可恢复。';
     final ok = await _confirmClear(
-      '清空「$label」',
-      '将取消关注并删除「$label」下的 ${names.length} 个账号，不可恢复。',
+      '删除「$label」',
+      detail,
     );
     if (!ok || !mounted) {
       return;
@@ -213,11 +208,22 @@ class _CategoriesPageState extends State<CategoriesPage> {
     setState(() => _purging = true);
     try {
       final removed = await app.purgeAccounts(names);
+      final key = category.trim().toLowerCase();
+      setState(() {
+        _categories.removeWhere((item) => item.trim().toLowerCase() == key);
+        _visibleCategories.removeWhere(
+          (item) => item.trim().toLowerCase() == key,
+        );
+      });
+      await _save();
       if (!mounted) {
         return;
       }
       await _loadCategories();
-      showAppSnack(context, '已清空「$label」$removed 人');
+      showAppSnack(
+        context,
+        removed > 0 ? '已删除「$label」，并清除 $removed 人' : '已删除分类「$label」',
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -248,143 +254,13 @@ class _CategoriesPageState extends State<CategoriesPage> {
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: Text('清除', style: TextStyle(color: AppColors.danger, fontSize: 14.sp)),
+              child: Text('删除', style: TextStyle(color: AppColors.danger, fontSize: 14.sp)),
             ),
           ],
         );
       },
     );
     return ok == true;
-  }
-
-  Future<void> _purgeByTweets() async {
-    if (_purging) {
-      return;
-    }
-    final maxTweets = int.tryParse(_purgeTweets.text.trim());
-    if (maxTweets == null || maxTweets < 0) {
-      showAppSnack(context, '请输入有效的推文数，例如 50', error: true);
-      return;
-    }
-    final app = AppScope.of(context);
-    final names = await app.accountDb.usernamesWithTweetsLessThan(maxTweets);
-    if (!mounted) {
-      return;
-    }
-    if (names.isEmpty) {
-      showAppSnack(context, '没有推文少于 $maxTweets 的关注');
-      return;
-    }
-    final ok = await _confirmClear(
-      '清除推文过少的关注',
-      '将取消关注并删除 ${names.length} 个推文少于 $maxTweets 的账号，不可恢复。',
-    );
-    if (!ok || !mounted) {
-      return;
-    }
-    setState(() => _purging = true);
-    try {
-      final removed = await app.purgeAccounts(names);
-      if (!mounted) {
-        return;
-      }
-      await _loadCategories();
-      showAppSnack(context, '已清除 $removed 人');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      showAppSnack(context, error.toString(), error: true);
-    } finally {
-      if (mounted) {
-        setState(() => _purging = false);
-      }
-    }
-  }
-
-  Future<void> _purgeByFollowers() async {
-    if (_purging) {
-      return;
-    }
-    final maxFollowers = int.tryParse(_purgeFollowers.text.trim());
-    if (maxFollowers == null || maxFollowers < 0) {
-      showAppSnack(context, '请输入有效的粉丝数，例如 100', error: true);
-      return;
-    }
-    final app = AppScope.of(context);
-    final names = await app.accountDb.usernamesWithFollowersLessThan(maxFollowers);
-    if (!mounted) {
-      return;
-    }
-    if (names.isEmpty) {
-      showAppSnack(context, '没有粉丝少于 $maxFollowers 的关注');
-      return;
-    }
-    final ok = await _confirmClear(
-      '清除粉丝过少的关注',
-      '将取消关注并删除 ${names.length} 个关注他的人少于 $maxFollowers 的账号，不可恢复。',
-    );
-    if (!ok || !mounted) {
-      return;
-    }
-    setState(() => _purging = true);
-    try {
-      final removed = await app.purgeAccounts(names);
-      if (!mounted) {
-        return;
-      }
-      await _loadCategories();
-      showAppSnack(context, '已清除 $removed 人');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      showAppSnack(context, error.toString(), error: true);
-    } finally {
-      if (mounted) {
-        setState(() => _purging = false);
-      }
-    }
-  }
-
-  Future<void> _purgeEmptyDescription() async {
-    if (_purging) {
-      return;
-    }
-    final app = AppScope.of(context);
-    final names = await app.accountDb.usernamesWithEmptyDescription();
-    if (!mounted) {
-      return;
-    }
-    if (names.isEmpty) {
-      showAppSnack(context, '没有个人描述为空的关注');
-      return;
-    }
-    final ok = await _confirmClear(
-      '清除无简介的关注',
-      '将取消关注并删除 ${names.length} 个个人描述为空的账号，不可恢复。',
-    );
-    if (!ok || !mounted) {
-      return;
-    }
-    setState(() => _purging = true);
-    try {
-      final removed = await app.purgeAccounts(names);
-      if (!mounted) {
-        return;
-      }
-      await _loadCategories();
-      showAppSnack(context, '已清除 $removed 人');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      showAppSnack(context, error.toString(), error: true);
-    } finally {
-      if (mounted) {
-        setState(() => _purging = false);
-      }
-    }
   }
 
   Future<void> _toggleCategory(String category, bool enabled) async {
@@ -554,47 +430,55 @@ class _CategoriesPageState extends State<CategoriesPage> {
     if (!visible) {
       _loaded = false;
     }
+    final compact = AppLayout.isCompact(context);
+    final canPop = Navigator.of(context).canPop();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        PageHeader(
-          trailing: Navigator.of(context).canPop()
-              ? IconButton(
-                  tooltip: '返回',
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: Icon(Icons.arrow_back_ios_new, size: 18.w),
-                )
-              : null,
-        ),
+        if (compact || canPop)
+          PageHeader(
+            trailing: canPop
+                ? IconButton(
+                    tooltip: '返回',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: Icon(Icons.arrow_back_ios_new, size: 18.w),
+                  )
+                : null,
+          ),
         Expanded(
           child: ListView(
-            padding: AppLayout.pagePadding(context, bottom: 28),
+            padding: EdgeInsets.fromLTRB(
+              16.w,
+              compact || canPop ? 0 : 16.h,
+              16.w,
+              16.h,
+            ),
             children: [
               SectionCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('关注分类', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800)),
-                    SizedBox(height: 6.h),
-                    Text(
-                      '默认全部关闭。打开某个分类后，关注列表、关注动态、关注图片、视频才会展示这一类账号。',
-                      style: TextStyle(color: AppColors.textMuted, height: 1.5, fontSize: 13.sp),
-                    ),
+                   
                     SizedBox(height: 12.h),
-                    Row(
+                    Stack(
+                      alignment: Alignment.centerRight,
                       children: [
-                        Expanded(
-                          child: AppTextField(
-                            controller: _newCategory,
-                            hint: '新分类名，例如 news',
-                            onSubmitted: (_) => _addCategory(),
-                          ),
+                        AppTextField(
+                          controller: _newCategory,
+                          hint: '新分类名，例如 news',
+                          isDense: true,
+                          contentPadding: EdgeInsets.fromLTRB(14.w, 10.h, 72.w, 20.h),
+                          onSubmitted: (_) => _addCategory(),
                         ),
-                        SizedBox(width: 10.w),
-                        GhostButton(
-                          label: '新增',
-                          icon: Icons.add,
-                          onPressed: _addCategory,
+                        Padding(
+                          padding: EdgeInsets.only(right: 6.w),
+                          child: PrimaryButton(
+                            label: '新增',
+                            color: AppColors.x,
+                            compact: true,
+                            onPressed: _addCategory,
+                          ),
                         ),
                       ],
                     ),
@@ -649,9 +533,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
                               ),
                             ),
                             TextButton(
-                              onPressed: busy ? null : () => _clearCategory(key),
+                              onPressed: busy ? null : () => _deleteCategory(key),
                               child: Text(
-                                '清空',
+                                '删除',
                                 style: TextStyle(
                                   fontSize: 13.sp,
                                   color: busy
@@ -682,72 +566,6 @@ class _CategoriesPageState extends State<CategoriesPage> {
                   ],
                 ),
               ),
-              SizedBox(height: 14.h),
-              SectionCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('清理关注', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800)),
-                    SizedBox(height: 6.h),
-                    Text(
-                      '按资料库里的推文数、粉丝数或简介清理。会同时取消关注并删除资料，不可恢复。',
-                      style: TextStyle(color: AppColors.textMuted, height: 1.5, fontSize: 13.sp),
-                    ),
-                    SizedBox(height: 12.h),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: AppTextField(
-                            controller: _purgeTweets,
-                            hint: '50',
-                            prefixIcon: Icons.filter_alt_outlined,
-                          ),
-                        ),
-                        SizedBox(width: 10.w),
-                        GhostButton(
-                          label: _purging ? '清除中' : '清除推文过少',
-                          icon: Icons.delete_outline,
-                          onPressed: _purging ? null : _purgeByTweets,
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 6.h),
-                    Text(
-                      '推文数少于上面这个数字的关注会被清掉，默认 50。',
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp),
-                    ),
-                    SizedBox(height: 12.h),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: AppTextField(
-                            controller: _purgeFollowers,
-                            hint: '100',
-                            prefixIcon: Icons.people_outline,
-                          ),
-                        ),
-                        SizedBox(width: 10.w),
-                        GhostButton(
-                          label: _purging ? '清除中' : '清除粉丝过少',
-                          icon: Icons.delete_outline,
-                          onPressed: _purging ? null : _purgeByFollowers,
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 6.h),
-                    Text(
-                      '关注他的人少于上面这个数字的会被清掉，默认 100。',
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp),
-                    ),
-                    SizedBox(height: 12.h),
-                    GhostButton(
-                      label: _purging ? '清除中' : '清除简介为空',
-                      icon: Icons.notes,
-                      onPressed: _purging ? null : _purgeEmptyDescription,
-                    ),
-                  ],
-                ),
-              ),
             ],
           ),
         ),
@@ -766,19 +584,18 @@ class _CategoryMembersDialog extends StatefulWidget {
 }
 
 class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
-  static const _rowHeight = 56.0;
+  static const _rowHeight = 48.0;
   static const _headerHeight = 38.0;
 
   static const _columns = <_SheetColumn>[
-    _SheetColumn('#', 56, align: TextAlign.right),
-    _SheetColumn('avatar', 72),
+    _SheetColumn('#', 40, align: TextAlign.right),
+    _SheetColumn('avatar', 48),
     _SheetColumn('name', 140),
-    _SheetColumn('username', 140),
     _SheetColumn('description', 280, wrap: true),
     _SheetColumn('followers', 88, align: TextAlign.right),
     _SheetColumn('following', 88, align: TextAlign.right),
     _SheetColumn('tweets', 80, align: TextAlign.right),
-    _SheetColumn('updated_at', 168),
+    _SheetColumn('updated_at', 150),
   ];
 
   static double get _tableWidth {
@@ -786,9 +603,16 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
   }
 
   final TextEditingController _query = TextEditingController();
+  final TextEditingController _followersMax = TextEditingController();
+  final TextEditingController _tweetsMax = TextEditingController();
+  final TextEditingController _followingMax = TextEditingController();
+  final TextEditingController _descKeyword = TextEditingController();
+  final TextEditingController _inactiveDays = TextEditingController(text: '15');
   final ScrollController _hScroll = ScrollController();
   List<XAccount> _all = <XAccount>[];
   bool _loading = true;
+  bool _busy = false;
+  bool _scanCancel = false;
   String? _error;
   String _sortKey = 'name';
   bool _sortAsc = true;
@@ -809,6 +633,11 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
   @override
   void dispose() {
     _query.dispose();
+    _followersMax.dispose();
+    _tweetsMax.dispose();
+    _followingMax.dispose();
+    _descKeyword.dispose();
+    _inactiveDays.dispose();
     _hScroll.dispose();
     super.dispose();
   }
@@ -897,6 +726,9 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
   }
 
   Future<void> _delete(XAccount account) async {
+    if (_busy) {
+      return;
+    }
     final app = AppScope.of(context);
     await app.accountDb.delete(account.username);
     await app.unfollowXAccount(account.username);
@@ -909,6 +741,350 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
       );
     });
     showAppSnack(context, '已删除 @${account.username}');
+  }
+
+  Future<bool> _confirm(String title, String detail) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: Text(
+            title,
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18.sp),
+          ),
+          content: Text(
+            detail,
+            style: TextStyle(color: AppColors.textMuted, height: 1.5, fontSize: 14.sp),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text('取消', style: TextStyle(color: AppColors.textMuted, fontSize: 14.sp)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text('删除', style: TextStyle(color: AppColors.danger, fontSize: 14.sp)),
+            ),
+          ],
+        );
+      },
+    );
+    return ok == true;
+  }
+
+  Future<void> _purgeWhere({
+    required String title,
+    required String Function(int count) detail,
+    required bool Function(XAccount account) match,
+    required String emptyMessage,
+  }) async {
+    if (_busy) {
+      return;
+    }
+    final targets = _all.where(match).toList();
+    if (targets.isEmpty) {
+      showAppSnack(context, emptyMessage, error: true);
+      return;
+    }
+    final ok = await _confirm(title, detail(targets.length));
+    if (!ok || !mounted) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final names = targets.map((item) => item.username).toList();
+      final removed = await AppScope.of(context).purgeAccounts(names);
+      if (!mounted) {
+        return;
+      }
+      final removedSet = names.map((name) => name.toLowerCase()).toSet();
+      setState(() {
+        _all.removeWhere(
+          (item) => removedSet.contains(item.username.toLowerCase()),
+        );
+      });
+      showAppSnack(context, '已删除 $removed 人');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _purgeFollowersLessThan() async {
+    final max = int.tryParse(_followersMax.text.trim());
+    if (max == null || max < 0) {
+      showAppSnack(context, '请输入有效的粉丝数，例如 100', error: true);
+      return;
+    }
+    await _purgeWhere(
+      title: '删除粉丝过少的关注',
+      detail: (count) => '将取消关注并删除粉丝少于 $max 的 $count 个账号，不可恢复。',
+      match: (account) => account.followers < max,
+      emptyMessage: '没有粉丝少于 $max 的关注',
+    );
+  }
+
+  Future<void> _purgeTweetsLessThan() async {
+    final max = int.tryParse(_tweetsMax.text.trim());
+    if (max == null || max < 0) {
+      showAppSnack(context, '请输入有效的推文数，例如 50', error: true);
+      return;
+    }
+    await _purgeWhere(
+      title: '删除推文过少的关注',
+      detail: (count) => '将取消关注并删除推文少于 $max 的 $count 个账号，不可恢复。',
+      match: (account) => account.tweets < max,
+      emptyMessage: '没有推文少于 $max 的关注',
+    );
+  }
+
+  Future<void> _purgeFollowingLessThan() async {
+    final max = int.tryParse(_followingMax.text.trim());
+    if (max == null || max < 0) {
+      showAppSnack(context, '请输入有效的关注数，例如 100', error: true);
+      return;
+    }
+    await _purgeWhere(
+      title: '删除关注过少的账号',
+      detail: (count) => '将取消关注并删除关注数少于 $max 的 $count 个账号，不可恢复。',
+      match: (account) => account.following < max,
+      emptyMessage: '没有关注数少于 $max 的账号',
+    );
+  }
+
+  Future<void> _purgeDescriptionMissingKeyword() async {
+    final keyword = _descKeyword.text.trim().toLowerCase();
+    if (keyword.isEmpty) {
+      showAppSnack(context, '请输入描述里要包含的关键字', error: true);
+      return;
+    }
+    await _purgeWhere(
+      title: '删除简介不含关键字的关注',
+      detail: (count) => '将取消关注并删除简介不含「$keyword」的 $count 个账号，不可恢复。',
+      match: (account) => !account.description.toLowerCase().contains(keyword),
+      emptyMessage: '没有简介不含「$keyword」的关注',
+    );
+  }
+
+  Future<void> _scanInactive() async {
+    if (_busy) {
+      return;
+    }
+    final days = int.tryParse(_inactiveDays.text.trim());
+    if (days == null || days < 1) {
+      showAppSnack(context, '请输入有效天数，例如 15', error: true);
+      return;
+    }
+    if (_all.isEmpty) {
+      showAppSnack(context, '这个分类还没有关注人', error: true);
+      return;
+    }
+    _scanCancel = false;
+    setState(() => _busy = true);
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    final service = AppScope.of(context).xFollowingService;
+    var removed = 0;
+    var done = 0;
+    var failed = 0;
+    var current = '';
+    final total = _all.length;
+    StateSetter? setDialog;
+    var dialogOpen = false;
+
+    void openDialog() {
+      if (dialogOpen) {
+        return;
+      }
+      dialogOpen = true;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {  
+          return StatefulBuilder(
+            builder: (dialogContext, setLocal) {
+              setDialog = setLocal;
+              final progress = total == 0 ? 0.0 : done / total;
+              return AlertDialog(
+                backgroundColor: AppColors.surface,
+                title: Text(
+                  '扫描 $days 天未发帖',
+                  style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
+                ),
+                content: SizedBox(
+                  width: 360.w,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      LinearProgressIndicator(
+                        value: progress,
+                        color: AppColors.accent,
+                        backgroundColor: AppColors.surfaceAlt,
+                      ),
+                      SizedBox(height: 12.h),
+                      Text(
+                        '$done / $total',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.sp),
+                      ),
+                      SizedBox(height: 6.h),
+                      Text(
+                        current.isEmpty ? '准备中…' : '@$current',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppColors.textMuted, fontSize: 13.sp),
+                      ),
+                      if (removed > 0 || failed > 0) ...[
+                        SizedBox(height: 6.h),
+                        Text(
+                          '已删除 $removed 人${failed > 0 ? '，失败 $failed 人已跳过' : ''}',
+                          style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      _scanCancel = true;
+                      dialogOpen = false;
+                      Navigator.of(dialogContext).pop();
+                    },
+                    child: Text(
+                      '停止',
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 14.sp),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    }
+
+    try {
+      openDialog();
+      for (final account in List<XAccount>.from(_all)) {
+        if (_scanCancel) {
+          break;
+        }
+        current = account.username;
+        setDialog?.call(() {});
+        try {
+          final page = await service.fetchPostsPage(account.username, count: 8);
+          DateTime? latest;
+          for (final post in page.posts) {
+            final time = post.publishedAt;
+            if (time == null) {
+              continue;
+            }
+            if (latest == null || time.isAfter(latest)) {
+              latest = time;
+            }
+          }
+          final inactive = page.posts.isEmpty ||
+              (latest != null && latest.isBefore(cutoff));
+          if (page.posts.isNotEmpty && latest == null) {
+            failed += 1;
+          } else if (inactive) {
+            await AppScope.of(context).purgeAccounts([account.username]);
+            removed += 1;
+            if (mounted) {
+              setState(() {
+                _all.removeWhere(
+                  (item) =>
+                      item.username.toLowerCase() ==
+                      account.username.toLowerCase(),
+                );
+              });
+            }
+          }
+        } catch (_) {
+          failed += 1;
+        }
+        done += 1;
+        setDialog?.call(() {});
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+      }
+      if (dialogOpen && mounted) {
+        dialogOpen = false;
+        Navigator.of(context).pop();
+      }
+      if (!mounted) {
+        return;
+      }
+      if (removed == 0) {
+        showAppSnack(
+          context,
+          _scanCancel
+              ? '已停止。还没扫到 $days 天未发帖的账号。'
+              : failed > 0
+                  ? '没有 $days 天未发帖的账号。失败 $failed 人已跳过。'
+                  : '没有 $days 天未发帖的账号',
+        );
+        return;
+      }
+      showAppSnack(
+        context,
+        _scanCancel
+            ? '已停止。已删除 $removed 人${failed > 0 ? '，失败 $failed 人已跳过' : ''}'
+            : '已删除 $removed 人${failed > 0 ? '，失败 $failed 人已跳过' : ''}',
+      );
+    } catch (error) {
+      if (dialogOpen && mounted) {
+        dialogOpen = false;
+        Navigator.of(context).pop();
+      }
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Widget _purgeField({
+    required TextEditingController controller,
+    required String hint,
+    required VoidCallback? onDelete,
+    String actionLabel = '删除',
+    Color? actionColor,
+  }) {
+    return SizedBox(
+      height: 48.h,
+      child: AppTextField(
+        controller: controller,
+        hint: hint,
+        isDense: true,
+        contentPadding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+        onSubmitted: (_) => onDelete?.call(),
+        suffix: TextButton(
+          onPressed: onDelete,
+          style: TextButton.styleFrom(
+            foregroundColor: actionColor ?? AppColors.danger,
+            padding: EdgeInsets.symmetric(horizontal: 8.w),
+            minimumSize: Size(0, 32.h),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+          ),
+          child: Text(
+            actionLabel,
+            style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -950,10 +1126,65 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
             ),
             Padding(
               padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 10.h),
-              child: AppTextField(
-                controller: _query,
-                hint: '搜索 name / username / description',
-                prefixIcon: Icons.search,
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 48.h,
+                    child: AppTextField(
+                      controller: _query,
+                      hint: '搜索 name / username / description',
+                      prefixIcon: Icons.search,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+                    ),
+                  ),
+                  SizedBox(height: 8.h),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _purgeField(
+                          controller: _followersMax,
+                          hint: '粉丝少于，例如 100',
+                          onDelete: _busy ? null : _purgeFollowersLessThan,
+                        ),
+                      ),
+                      SizedBox(width: 8.w),
+                      Expanded(
+                        child: _purgeField(
+                          controller: _tweetsMax,
+                          hint: '推文少于，例如 50',
+                          onDelete: _busy ? null : _purgeTweetsLessThan,
+                        ),
+                      ),
+                      SizedBox(width: 8.w),
+                      Expanded(
+                        child: _purgeField(
+                          controller: _followingMax,
+                          hint: '关注少于，例如 100',
+                          onDelete: _busy ? null : _purgeFollowingLessThan,
+                        ),
+                      ),
+                      SizedBox(width: 8.w),
+                      Expanded(
+                        child: _purgeField(
+                          controller: _descKeyword,
+                          hint: '描述不含关键字',
+                          onDelete: _busy ? null : _purgeDescriptionMissingKeyword,
+                        ),
+                      ),
+                      SizedBox(width: 8.w),
+                      Expanded(
+                        child: _purgeField(
+                          controller: _inactiveDays,
+                          hint: '未发帖天数，例如 15',
+                          actionLabel: '扫描',
+                          actionColor: AppColors.accent,
+                          onDelete: _busy ? null : _scanInactive,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
             Expanded(child: _buildBody(rows)),
@@ -1088,11 +1319,11 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
   }
 
   Widget _dataRow(int number, XAccount account, bool striped) {
+    final displayName = account.name.trim().isEmpty ? account.username : account.name;
     final values = <String>[
       '$number',
       '',
-      account.name.trim().isEmpty ? account.username : account.name,
-      account.username,
+      displayName,
       account.description,
       '${account.followers}',
       '${account.following}',
@@ -1115,7 +1346,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
                     ? Tooltip(
                         message: '点击删除',
                         child: InkWell(
-                          onTap: () => _delete(account),
+                          onTap: _busy ? null : () => _delete(account),
                           child: Text(
                             '$number',
                             textAlign: TextAlign.right,
@@ -1136,7 +1367,47 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
                           child: InkWell(
                             onTap: () => showAccountHome(context, account),
                             customBorder: const CircleBorder(),
-                            child: _SheetAvatar(url: account.avatarUrl, size: 44),
+                            child: XAvatar(url: account.avatarUrl, size: 28),
+                          ),
+                        ),
+                      )
+                    : i == 2
+                    ? Tooltip(
+                        message: '$displayName  @${account.username}',
+                        waitDuration: const Duration(milliseconds: 400),
+                        child: GestureDetector(
+                          onDoubleTap: () async {
+                            await copyText(account.username);
+                            if (!mounted) {
+                              return;
+                            }
+                            showAppSnack(context, '已复制 username');
+                          },
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12.sp,
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                '@${account.username}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11.sp,
+                                  height: 1.35,
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       )
@@ -1164,7 +1435,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
                             style: TextStyle(
                               fontSize: 12.sp,
                               height: 1.35,
-                              color: i == 0 ? AppColors.textMuted : AppColors.text,
+                              color: AppColors.text,
                             ),
                           ),
                         ),
@@ -1218,28 +1489,3 @@ class _SheetColumn {
   final bool wrap;
 }
 
-class _SheetAvatar extends StatelessWidget {
-  const _SheetAvatar({required this.url, required this.size});
-
-  final String url;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final side = size.w;
-    return ClipOval(
-      child: ColoredBox(
-        color: AppColors.bg,
-        child: url.isEmpty
-            ? SizedBox(width: side, height: side)
-            : Image.network(
-                url,
-                width: side,
-                height: side,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => SizedBox(width: side, height: side),
-              ),
-      ),
-    );
-  }
-}

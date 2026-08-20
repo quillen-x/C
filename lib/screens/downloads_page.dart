@@ -537,7 +537,6 @@ class _FileTile extends StatelessWidget {
                   ],
                 ),
               ),
-            
               IconButton(
                 tooltip: '删除记录',
                 onPressed: onDelete,

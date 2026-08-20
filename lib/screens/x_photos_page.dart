@@ -6,7 +6,6 @@ import '../theme.dart';
 import '../widgets/app_layout.dart';
 import '../widgets/app_scope.dart';
 import '../widgets/common.dart';
-import '../widgets/home_shell.dart';
 import '../widgets/media_viewer.dart';
 
 class XPhotosPage extends StatefulWidget {
@@ -21,6 +20,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
   List<_FollowedPhoto> _photos = <_FollowedPhoto>[];
   bool _loading = false;
   bool _started = false;
+  bool _noSpecial = false;
   String? _error;
 
   @override
@@ -34,9 +34,13 @@ class _XPhotosPageState extends State<XPhotosPage> {
       _started = true;
       _loading = true;
       _error = null;
+      _noSpecial = false;
     });
     final app = AppScope.of(context);
-    final names = await app.visibleUsernames(from: app.settings.xFollowing);
+    final names = await app.visibleUsernames(
+      from: app.settings.xFollowing,
+      specialOnly: true,
+    );
     try {
       if (names.isEmpty) {
         if (!mounted) {
@@ -45,6 +49,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
         setState(() {
           _photos = <_FollowedPhoto>[];
           _error = null;
+          _noSpecial = true;
         });
         return;
       }
@@ -82,27 +87,13 @@ class _XPhotosPageState extends State<XPhotosPage> {
   }
 
   int _columns(BuildContext context) {
-    return AppLayout.isCompact(context) ? 2 : 5;
+    return AppLayout.isCompact(context) ? 2 : 4;
   }
 
   @override
   Widget build(BuildContext context) {
     final names = AppScope.of(context).settings.xFollowing;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        PageHeader(
-          trailing: _started
-              ? GhostButton(
-                  label: _loading ? '刷新中' : '刷新',
-                  icon: Icons.refresh,
-                  onPressed: _loading ? null : _load,
-                )
-              : null,
-        ),
-        Expanded(child: _buildBody(names.isEmpty)),
-      ],
-    );
+    return _buildBody(names.isEmpty);
   }
 
   Widget _buildBody(bool emptyFollowing) {
@@ -132,6 +123,13 @@ class _XPhotosPageState extends State<XPhotosPage> {
         detail: '到「分类」打开要看的类别。',
       );
     }
+    if (_noSpecial) {
+      return const EmptyHint(
+        icon: Icons.favorite_border_rounded,
+        title: '还没有特别关注',
+        detail: '当前分类里没有特别关注的账号。到「关注」里给想看的人点特别关注，这里只会加载这些人的图片。',
+      );
+    }
     if (_error != null && _photos.isEmpty) {
       return EmptyHint(
         icon: Icons.wifi_off_rounded,
@@ -143,7 +141,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
       return const EmptyHint(
         icon: Icons.photo_outlined,
         title: '暂时没有图片',
-        detail: '关注的人最近没有发图片。过一会儿再刷新，或到「关注」里加几个账号。',
+        detail: '特别关注的人最近没有发图片。过一会儿再刷新，或到「关注」里再特别关注几个账号。',
       );
     }
     return _PhotoWaterfall(
@@ -184,7 +182,7 @@ class _PhotoWaterfall extends StatelessWidget {
       controller: controller,
       slivers: [
         SliverPadding(
-          padding: EdgeInsets.fromLTRB(12.w, 12.h, 12.w, AppLayout.mediaHubBarClearance.h),
+          padding: EdgeInsets.fromLTRB(12.w, 16.h, 12.w, AppLayout.mediaHubBarClearance.h),
           sliver: SliverToBoxAdapter(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -270,10 +268,11 @@ class _PhotoTile extends StatelessWidget {
                 color: AppColors.surface,
                 child: imageUrl.isEmpty
                     ? Icon(Icons.photo_outlined, size: 36.w, color: AppColors.textMuted)
-                    : Image.network(
-                        imageUrl,
+                    : AppNetworkImage(
+                        url: imageUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Center(
+                        memCacheWidth: 480,
+                        error: Center(
                           child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted, size: 32.w),
                         ),
                       ),

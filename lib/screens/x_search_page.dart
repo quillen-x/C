@@ -628,7 +628,7 @@ class _XSearchPageState extends State<XSearchPage> {
     return PostWaterfall(
       posts: _posts,
       controller: _postsScroll,
-      columns: widget.dialog || compact ? 2 : 4,
+      columns: widget.dialog || compact ? 2 : 3,
       showAuthor: true,
       loadingMore: _postsLoadingMore,
       hasMore: _hasMorePosts,

@@ -57,25 +57,29 @@ class HomeShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = page.isMediaHub
-        ? Stack(
-            fit: StackFit.expand,
-            children: [
-              child,
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 16.h,
-                child: Center(
-                  child: _MediaSubTabs(
-                    page: page,
-                    onSelect: onSelect,
-                  ),
+    final content = Stack(
+      fit: StackFit.expand,
+      children: [
+        child,
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 16.h,
+          child: IgnorePointer(
+            ignoring: !page.isMediaHub,
+            child: Opacity(
+              opacity: page.isMediaHub ? 1 : 0,
+              child: Center(
+                child: _MediaSubTabs(
+                  page: page.isMediaHub ? page : AppPage.xFeed,
+                  onSelect: onSelect,
                 ),
               ),
-            ],
-          )
-        : child;
+            ),
+          ),
+        ),
+      ],
+    );
     if (AppLayout.isCompact(context)) {
       return Column(
         children: [
@@ -210,15 +214,15 @@ class _BottomNav extends StatelessWidget {
           icon: activeCount > 0
               ? Badge(
                   label: Text('$activeCount'),
-                  child: _NavSvg(asset: _NavAssets.download, color: AppColors.textMuted, size: 22),
+                  child: const _NavSvg(asset: _NavAssets.download, color: AppColors.textMuted, size: 22),
                 )
-              : _NavSvg(asset: _NavAssets.download, color: AppColors.textMuted, size: 22),
+              : const _NavSvg(asset: _NavAssets.download, color: AppColors.textMuted, size: 22),
           activeIcon: activeCount > 0
               ? Badge(
                   label: Text('$activeCount'),
-                  child: _NavSvg(asset: _NavAssets.download, color: AppColors.accent, size: 22),
+                  child: const _NavSvg(asset: _NavAssets.download, color: AppColors.accent, size: 22),
                 )
-              : _NavSvg(asset: _NavAssets.download, color: AppColors.accent, size: 22),
+              : const _NavSvg(asset: _NavAssets.download, color: AppColors.accent, size: 22),
           label: '下载',
         ),
       ],

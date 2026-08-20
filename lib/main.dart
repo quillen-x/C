@@ -22,13 +22,15 @@ import 'widgets/x_feed_links.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  PaintingBinding.instance.imageCache.maximumSize = 2000;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 200 << 20;
   XFeedLinks.openMention = openXMention;
   XFeedLinks.openSearch = showPostSearch;
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.light);
   if (Platform.isMacOS) {
     await windowManager.ensureInitialized();
     const windowOptions = WindowOptions(
-      size: Size(1280, 768),
+      size: Size(1024, 768),
       center: true,
       backgroundColor: Colors.transparent,
       skipTaskbar: false,
@@ -70,7 +72,7 @@ class _MediaDownloaderAppState extends State<MediaDownloaderApp> {
     return AppScope(
       controller: _controller,
       child: ScreenUtilInit(
-        designSize: Platform.isIOS ? const Size(390, 844) : const Size(1280, 768),
+        designSize: Platform.isIOS ? const Size(390, 844) : const Size(1024, 768),
         minTextAdapt: true,
         splitScreenMode: true,
         builder: (context, child) {
@@ -95,6 +97,18 @@ class _Root extends StatefulWidget {
 }
 
 class _RootState extends State<_Root> {
+  static const _stackOrder = <AppPage>[
+    AppPage.search,
+    AppPage.xFeed,
+    AppPage.xPhotos,
+    AppPage.x,
+    AppPage.xFollowing,
+    AppPage.xAccounts,
+    AppPage.downloads,
+    AppPage.categories,
+    AppPage.settings,
+  ];
+
   AppPage _page = Platform.isIOS ? AppPage.xFeed : AppPage.search;
   AppPage _mediaPage = AppPage.xFeed;
   final Map<AppPage, Widget> _pages = <AppPage, Widget>{};
@@ -105,11 +119,10 @@ class _RootState extends State<_Root> {
     super.initState();
     _ensurePage(_page);
     _ensurePage(AppPage.downloads);
-    if (_page.isMediaHub) {
-      _ensurePage(AppPage.xFeed);
-      _ensurePage(AppPage.xPhotos);
-      _ensurePage(AppPage.x);
-    }
+    _ensurePage(AppPage.xFeed);
+    _ensurePage(AppPage.xPhotos);
+    _ensurePage(AppPage.x);
+    _ensurePage(AppPage.xFollowing);
   }
 
   void _select(AppPage page) {
@@ -140,6 +153,8 @@ class _RootState extends State<_Root> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
+    final stacked = _stackOrder.where(_pages.containsKey).toList();
+    final index = stacked.indexOf(_page);
     return Scaffold(
       body: HomeShell(
         page: _page,
@@ -147,17 +162,20 @@ class _RootState extends State<_Root> {
         onSelect: _select,
         child: Stack(
           fit: StackFit.expand,
-          children: _pages.entries.map((entry) {
-            final active = entry.key == _page;
-            return Offstage(
-              key: ValueKey(entry.key),
-              offstage: !active,
-              child: TickerMode(
-                enabled: active,
-                child: entry.value,
+          children: [
+            for (var i = 0; i < stacked.length; i++)
+              Offstage(
+                key: ValueKey(stacked[i]),
+                offstage: i != index,
+                child: TickerMode(
+                  enabled: true,
+                  child: IgnorePointer(
+                    ignoring: i != index,
+                    child: _pages[stacked[i]]!,
+                  ),
+                ),
               ),
-            );
-          }).toList(),
+          ],
         ),
       ),
     );

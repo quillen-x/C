@@ -199,23 +199,33 @@ class _CommentsDialogState extends State<_CommentsDialog> {
           ),
           if (post.displayText.isNotEmpty) ...[
             SizedBox(height: 10.h),
-            _RichPostText(
-              text: post.displayText,
-              style: TextStyle(height: 1.5, fontSize: 15.sp),
-              selectable: true,
+            _HoverTranslateTarget(
+              post: post,
+              builder: (context, view) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _RichPostText(
+                      text: view.mainText,
+                      style: TextStyle(height: 1.5, fontSize: 15.sp),
+                      selectable: true,
+                    ),
+                    if (view.hasTranslation) ...[
+                      SizedBox(height: 6.h),
+                      _RichPostText(
+                        text: post.text,
+                        style: TextStyle(
+                          height: 1.45,
+                          fontSize: 13.sp,
+                          color: AppColors.textMuted,
+                        ),
+                        selectable: true,
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
-            if (post.hasTranslation) ...[
-              SizedBox(height: 6.h),
-              _RichPostText(
-                text: post.text,
-                style: TextStyle(
-                  height: 1.45,
-                  fontSize: 13.sp,
-                  color: AppColors.textMuted,
-                ),
-                selectable: true,
-              ),
-            ],
           ],
           if (post.media.isNotEmpty) ...[
             SizedBox(height: 10.h),
@@ -223,6 +233,7 @@ class _CommentsDialogState extends State<_CommentsDialog> {
               media: post.media,
               username: post.username,
               displayName: post.displayName,
+              text: post.displayText,
             ),
           ],
           if (post.publishedAt != null) ...[
@@ -291,61 +302,67 @@ class _CommentsDialogState extends State<_CommentsDialog> {
   }
 
   Widget _replyTile(XPost reply) {
-    return Container(
-      padding: EdgeInsets.fromLTRB(12.w, 10.h, 12.w, 10.h),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(12.w),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return _HoverTranslateTarget(
+      post: reply,
+      builder: (context, view) {
+        return Container(
+          padding: EdgeInsets.fromLTRB(12.w, 10.h, 12.w, 10.h),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceAlt,
+            borderRadius: BorderRadius.circular(12.w),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  '@${reply.username}',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.sp),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '@${reply.username}',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.sp),
+                    ),
+                  ),
+                  if (reply.publishedAt != null)
+                    Text(
+                      formatPostTime(reply.publishedAt!),
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 11.sp),
+                    ),
+                ],
               ),
-              if (reply.publishedAt != null)
-                Text(
-                  formatPostTime(reply.publishedAt!),
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 11.sp),
+              if (view.mainText.isNotEmpty) ...[
+                SizedBox(height: 6.h),
+                _RichPostText(
+                  text: view.mainText,
+                  style: TextStyle(height: 1.45, fontSize: 13.sp),
+                  selectable: true,
                 ),
+                if (view.hasTranslation) ...[
+                  SizedBox(height: 4.h),
+                  _RichPostText(
+                    text: reply.text,
+                    style: TextStyle(
+                      height: 1.4,
+                      fontSize: 12.sp,
+                      color: AppColors.textMuted,
+                    ),
+                    selectable: true,
+                  ),
+                ],
+              ],
+              if (reply.media.isNotEmpty) ...[
+                SizedBox(height: 8.h),
+                _MomentsMediaGrid(
+                  media: reply.media,
+                  username: reply.username,
+                  displayName: reply.displayName,
+                  text: reply.displayText,
+                ),
+              ],
             ],
           ),
-          if (reply.displayText.isNotEmpty) ...[
-            SizedBox(height: 6.h),
-            _RichPostText(
-              text: reply.displayText,
-              style: TextStyle(height: 1.45, fontSize: 13.sp),
-              selectable: true,
-            ),
-            if (reply.hasTranslation) ...[
-              SizedBox(height: 4.h),
-              _RichPostText(
-                text: reply.text,
-                style: TextStyle(
-                  height: 1.4,
-                  fontSize: 12.sp,
-                  color: AppColors.textMuted,
-                ),
-                selectable: true,
-              ),
-            ],
-          ],
-          if (reply.media.isNotEmpty) ...[
-            SizedBox(height: 8.h),
-            _MomentsMediaGrid(
-              media: reply.media,
-              username: reply.username,
-              displayName: reply.displayName,
-            ),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -391,7 +408,7 @@ class PostWaterfall extends StatelessWidget {
     required this.loadingMore,
     required this.hasMore,
     required this.onDownload,
-    this.columns = 3,
+    this.columns = 2,
     this.showAuthor = false,
     this.padding,
     this.textSize,
@@ -472,35 +489,30 @@ class PostWaterfall extends StatelessWidget {
   }
 }
 
-class PostCard extends StatefulWidget {
-  const PostCard({
-    super.key,
+class _HoverTranslateView {
+  const _HoverTranslateView({
+    required this.mainText,
+    required this.hasTranslation,
+  });
+
+  final String mainText;
+  final bool hasTranslation;
+}
+
+class _HoverTranslateTarget extends StatefulWidget {
+  const _HoverTranslateTarget({
     required this.post,
-    required this.onDownload,
-    this.onOpen,
-    this.onComments,
-    this.onTap,
-    this.showAuthor = false,
-    this.dense = false,
-    this.textSize,
-    this.textWeight,
+    required this.builder,
   });
 
   final XPost post;
-  final ValueChanged<XPost> onDownload;
-  final ValueChanged<String>? onOpen;
-  final VoidCallback? onComments;
-  final VoidCallback? onTap;
-  final bool showAuthor;
-  final bool dense;
-  final double? textSize;
-  final FontWeight? textWeight;
+  final Widget Function(BuildContext context, _HoverTranslateView view) builder;
 
   @override
-  State<PostCard> createState() => _PostCardState();
+  State<_HoverTranslateTarget> createState() => _HoverTranslateTargetState();
 }
 
-class _PostCardState extends State<PostCard> {
+class _HoverTranslateTargetState extends State<_HoverTranslateTarget> {
   Timer? _hoverTimer;
   Timer? _exitTimer;
   String _translation = '';
@@ -508,7 +520,6 @@ class _PostCardState extends State<PostCard> {
   bool _pointerInside = false;
 
   XPost get post => widget.post;
-  bool get dense => widget.dense;
 
   String get _shownTranslation {
     final hovered = _translation.trim();
@@ -534,7 +545,7 @@ class _PostCardState extends State<PostCard> {
   }
 
   @override
-  void didUpdateWidget(covariant PostCard oldWidget) {
+  void didUpdateWidget(covariant _HoverTranslateTarget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.post.id != post.id) {
       _hoverTimer?.cancel();
@@ -563,7 +574,6 @@ class _PostCardState extends State<PostCard> {
   void _onExit(PointerEvent _) {
     _pointerInside = false;
     _exitTimer?.cancel();
-    // 卡片高度变化时 Flutter 会误触发 onExit；稍等一下，还在上面就不要取消。
     _exitTimer = Timer(const Duration(milliseconds: 160), () {
       if (_pointerInside) {
         return;
@@ -610,120 +620,164 @@ class _PostCardState extends State<PostCard> {
     }
   }
 
-  Widget _bodyText(String value, {bool muted = false, int? maxLines}) {
-    final size = widget.textSize ?? (dense ? 12.sp : 14.sp);
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: _onEnter,
+      onExit: _onExit,
+      child: widget.builder(
+        context,
+        _HoverTranslateView(
+          mainText: _mainText,
+          hasTranslation: _hasTranslation,
+        ),
+      ),
+    );
+  }
+}
+
+class PostCard extends StatelessWidget {
+  const PostCard({
+    super.key,
+    required this.post,
+    required this.onDownload,
+    this.onOpen,
+    this.onComments,
+    this.onTap,
+    this.showAuthor = false,
+    this.dense = false,
+    this.textSize,
+    this.textWeight,
+  });
+
+  final XPost post;
+  final ValueChanged<XPost> onDownload;
+  final ValueChanged<String>? onOpen;
+  final VoidCallback? onComments;
+  final VoidCallback? onTap;
+  final bool showAuthor;
+  final bool dense;
+  final double? textSize;
+  final FontWeight? textWeight;
+
+  Widget _bodyText(BuildContext context, String value, {bool muted = false, int? maxLines}) {
+    final size = textSize ?? (dense ? 12.sp : 14.sp);
     final style = TextStyle(
       height: 1.45,
       fontSize: muted ? size - 1.sp : size,
-      fontWeight: widget.textWeight ?? FontWeight.w400,
+      fontWeight: textWeight ?? FontWeight.w400,
       color: muted ? AppColors.textMuted : null,
     );
     return _RichPostText(
       text: value,
       style: style,
       maxLines: maxLines,
-      selectable: widget.onTap == null,
+      selectable: onTap == null,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final card = Container(
-      padding: dense
-          ? EdgeInsets.fromLTRB(8.w, 8.h, 8.w, 8.h)
-          : EdgeInsets.fromLTRB(14.w, 12.h, 12.w, 12.h),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(12.w),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (widget.showAuthor)
-            GestureDetector(
-              onTap: () => XFeedLinks.openMention?.call(context, post.username),
-              behavior: HitTestBehavior.opaque,
-              child: Row(
-                children: [
-                  XAvatar(url: post.avatarUrl, size: dense ? 22 : 32),
-                  SizedBox(width: dense ? 6.w : 8.w),
-                  Expanded(
-                    child: Text(
-                      post.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: dense ? 11.sp : 13.sp,
+    return _HoverTranslateTarget(
+      post: post,
+      builder: (context, view) {
+        final card = Container(
+          padding: dense
+              ? EdgeInsets.fromLTRB(8.w, 8.h, 8.w, 8.h)
+              : EdgeInsets.fromLTRB(14.w, 12.h, 12.w, 12.h),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceAlt,
+            borderRadius: BorderRadius.circular(12.w),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (showAuthor)
+                GestureDetector(
+                  onTap: () => XFeedLinks.openMention?.call(context, post.username),
+                  behavior: HitTestBehavior.opaque,
+                  child: Row(
+                    children: [
+                      XAvatar(url: post.avatarUrl, size: dense ? 22 : 32),
+                      SizedBox(width: dense ? 6.w : 8.w),
+                      Expanded(
+                        child: Text(
+                          post.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: dense ? 11.sp : 13.sp,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
+                ),
+              if (view.mainText.isNotEmpty) ...[
+                if (showAuthor) SizedBox(height: dense ? 4.h : 6.h),
+                _bodyText(context, view.mainText, maxLines: dense ? 8 : null),
+                if (view.hasTranslation) ...[
+                  SizedBox(height: dense ? 4.h : 6.h),
+                  _bodyText(context, post.text, muted: true, maxLines: dense ? 4 : null),
                 ],
-              ),
-            ),
-          if (_mainText.isNotEmpty) ...[
-            if (widget.showAuthor) SizedBox(height: dense ? 4.h : 6.h),
-            _bodyText(_mainText, maxLines: dense ? 8 : null),
-            if (_hasTranslation) ...[
-              SizedBox(height: dense ? 4.h : 6.h),
-              _bodyText(post.text, muted: true, maxLines: dense ? 4 : null),
-            ],
-          ],
-          if (post.media.isNotEmpty) ...[
-            SizedBox(height: dense ? 6.h : 10.h),
-            _PostMediaGrid(
-              media: post.media,
-              dense: dense,
-              username: post.username,
-              displayName: post.displayName,
-            ),
-          ],
-          if (!dense && (widget.onOpen != null || widget.onComments != null)) ...[
-            SizedBox(height: 10.h),
-            Wrap(
-              spacing: 8.w,
-              runSpacing: 8.h,
-              children: [
-                if (widget.onComments != null)
-                  GhostButton(
-                    label: '评论',
-                    icon: Icons.chat_bubble_outline,
-                    onPressed: widget.onComments,
-                  ),
-                if (widget.onOpen != null)
-                  GhostButton(
-                    label: '打开',
-                    icon: Icons.open_in_browser,
-                    onPressed: () => widget.onOpen!(post.url),
-                  ),
               ],
-            ),
-          ],
-          if (post.publishedAt != null) ...[
-            SizedBox(height: dense ? 6.h : 8.h),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                formatPostTime(post.publishedAt!),
-                style: TextStyle(color: AppColors.textMuted, fontSize: dense ? 10.sp : 11.sp),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-    return MouseRegion(
-      cursor: widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
-      onEnter: _onEnter,
-      onExit: _onExit,
-      child: widget.onTap == null
-          ? card
-          : GestureDetector(
-              onTap: widget.onTap,
-              behavior: HitTestBehavior.translucent,
-              child: card,
-            ),
+              if (post.media.isNotEmpty) ...[
+                SizedBox(height: dense ? 6.h : 10.h),
+                _PostMediaGrid(
+                  media: post.media,
+                  dense: dense,
+                  username: post.username,
+                  displayName: post.displayName,
+                  text: post.displayText,
+                ),
+              ],
+              if (!dense && (onOpen != null || onComments != null)) ...[
+                SizedBox(height: 10.h),
+                Wrap(
+                  spacing: 8.w,
+                  runSpacing: 8.h,
+                  children: [
+                    if (onComments != null)
+                      GhostButton(
+                        label: '评论',
+                        icon: Icons.chat_bubble_outline,
+                        onPressed: onComments,
+                      ),
+                    if (onOpen != null)
+                      GhostButton(
+                        label: '打开',
+                        icon: Icons.open_in_browser,
+                        onPressed: () => onOpen!(post.url),
+                      ),
+                  ],
+                ),
+              ],
+              if (post.publishedAt != null) ...[
+                SizedBox(height: dense ? 6.h : 8.h),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    formatPostTime(post.publishedAt!),
+                    style: TextStyle(color: AppColors.textMuted, fontSize: dense ? 10.sp : 11.sp),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+        return MouseRegion(
+          cursor: onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+          child: onTap == null
+              ? card
+              : GestureDetector(
+                  onTap: onTap,
+                  behavior: HitTestBehavior.translucent,
+                  child: card,
+                ),
+        );
+      },
     );
   }
 }
@@ -896,11 +950,13 @@ class _MomentsMediaGrid extends StatelessWidget {
     required this.media,
     this.username = '',
     this.displayName = '',
+    this.text = '',
   });
 
   final List<XMedia> media;
   final String username;
   final String displayName;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
@@ -931,6 +987,7 @@ class _MomentsMediaGrid extends StatelessWidget {
                   index: i,
                   username: username,
                   displayName: displayName,
+                  text: text,
                 ),
               ),
           ],
@@ -971,6 +1028,7 @@ class _MomentsMediaGrid extends StatelessWidget {
           index: 0,
           username: username,
           displayName: displayName,
+          text: text,
         ),
       ),
     );
@@ -983,12 +1041,14 @@ class _PostMediaGrid extends StatelessWidget {
     this.dense = false,
     this.username = '',
     this.displayName = '',
+    this.text = '',
   });
 
   final List<XMedia> media;
   final bool dense;
   final String username;
   final String displayName;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
@@ -1014,6 +1074,7 @@ class _PostMediaGrid extends StatelessWidget {
               index: 0,
               username: username,
               displayName: displayName,
+              text: text,
             ),
             if (media.length > 1)
               Positioned(
@@ -1059,6 +1120,7 @@ class _PostMediaGrid extends StatelessWidget {
                   index: i,
                   username: username,
                   displayName: displayName,
+                  text: text,
                 ),
               ),
           ],
@@ -1075,6 +1137,7 @@ class _MediaThumb extends StatelessWidget {
     required this.index,
     this.username = '',
     this.displayName = '',
+    this.text = '',
   });
 
   final XMedia item;
@@ -1082,6 +1145,7 @@ class _MediaThumb extends StatelessWidget {
   final int index;
   final String username;
   final String displayName;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
@@ -1095,6 +1159,7 @@ class _MediaThumb extends StatelessWidget {
           index,
           username: username,
           displayName: displayName,
+          text: text,
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10.w),
@@ -1103,10 +1168,11 @@ class _MediaThumb extends StatelessWidget {
             children: [
               ColoredBox(
                 color: AppColors.surface,
-                child: Image.network(
-                  imageUrl,
+                child: AppNetworkImage(
+                  url: imageUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const Center(
+                  memCacheWidth: 480,
+                  error: const Center(
                     child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
                   ),
                 ),
@@ -1140,40 +1206,6 @@ class _MediaThumb extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class XAvatar extends StatelessWidget {
-  const XAvatar({required this.url, required this.size});
-
-  final String url;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final side = size.w;
-    return ClipOval(
-      child: ColoredBox(
-        color: AppColors.surfaceAlt,
-        child: url.isEmpty
-            ? SizedBox(
-                width: side,
-                height: side,
-                child: Icon(Icons.person, size: (size * 0.57).w, color: AppColors.textMuted),
-              )
-            : Image.network(
-                url,
-                width: side,
-                height: side,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => SizedBox(
-                  width: side,
-                  height: side,
-                  child: Icon(Icons.person, size: (size * 0.57).w, color: AppColors.textMuted),
-                ),
-              ),
       ),
     );
   }

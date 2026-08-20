@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -28,6 +29,10 @@ class IoHelpers {
     if (Platform.isIOS) {
       return '$homeDir/Documents';
     }
+    return '$homeDir/Documents/MediaDownloader';
+  }
+
+  static String legacyDownloadDir() {
     return '$homeDir/Downloads/MediaDownloader';
   }
 
@@ -39,6 +44,8 @@ class IoHelpers {
         final settings = AppSettings.fromJson(json);
         if (settings.downloadDir.trim().isEmpty || Platform.isIOS) {
           settings.downloadDir = defaultDownloadDir();
+        } else {
+          await _migrateDownloadDirIfNeeded(settings);
         }
         return settings;
       }
@@ -47,6 +54,68 @@ class IoHelpers {
       downloadDir: defaultDownloadDir(),
       proxyEnabled: !Platform.isIOS,
     );
+  }
+
+  static Future<void> _migrateDownloadDirIfNeeded(AppSettings settings) async {
+    if (Platform.isIOS) {
+      return;
+    }
+    final current = settings.downloadDir.trim();
+    final legacy = legacyDownloadDir();
+    final next = defaultDownloadDir();
+    if (current != legacy) {
+      return;
+    }
+    await _moveDir(Directory(legacy), Directory(next));
+    settings.downloadDir = next;
+    settings.hiddenDownloads = settings.hiddenDownloads
+        .map((path) {
+          if (path.startsWith(legacy)) {
+            return '$next${path.substring(legacy.length)}';
+          }
+          return path;
+        })
+        .toList();
+    await saveSettings(settings);
+  }
+
+  static Future<void> _moveDir(Directory from, Directory to) async {
+    if (!await from.exists()) {
+      return;
+    }
+    if (!await to.exists()) {
+      try {
+        await from.rename(to.path);
+        return;
+      } catch (_) {
+        await to.create(recursive: true);
+      }
+    }
+    await for (final entity in from.list(followLinks: false)) {
+      final name = entity.uri.pathSegments.isEmpty
+          ? entity.path.split(RegExp(r'[\\/]')).last
+          : entity.uri.pathSegments.last;
+      if (name.isEmpty) {
+        continue;
+      }
+      final destPath = '${to.path}/$name';
+      if (entity is Directory) {
+        await _moveDir(entity, Directory(destPath));
+      } else if (entity is File) {
+        final dest = File(destPath);
+        if (await dest.exists()) {
+          continue;
+        }
+        try {
+          await entity.rename(destPath);
+        } catch (_) {
+          await entity.copy(destPath);
+          try {
+            await entity.delete();
+          } catch (_) {}
+        }
+      }
+    }
   }
 
   static Future<void> saveSettings(AppSettings settings) async {
@@ -282,6 +351,82 @@ class IoHelpers {
   static String formatSavedStamp(DateTime time) {
     String two(int n) => n.toString().padLeft(2, '0');
     return '${time.year}-${two(time.month)}-${two(time.day)}_${two(time.hour)}-${two(time.minute)}-${two(time.second)}';
+  }
+
+  static Future<String> uniqueSavePath({
+    required String dir,
+    required String label,
+    required String ext,
+  }) async {
+    final suffix = ext.startsWith('.') ? ext : '.$ext';
+    var name = '$label$suffix';
+    var path = '$dir/$name';
+    var index = 2;
+    while (await File(path).exists()) {
+      name = '${label}_$index$suffix';
+      path = '$dir/$name';
+      index += 1;
+    }
+    return path;
+  }
+
+  static Future<void> downloadFile(
+    String url,
+    String path, {
+    required void Function(double progress, String speed) onProgress,
+  }) async {
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 20);
+    client.idleTimeout = const Duration(minutes: 10);
+    client.userAgent =
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    try {
+      final request = await client.getUrl(Uri.parse(url));
+      request.headers.set('Referer', 'https://x.com/');
+      request.followRedirects = true;
+      request.maxRedirects = 8;
+      final response = await request.close().timeout(const Duration(seconds: 120));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('下载失败（HTTP ${response.statusCode}）');
+      }
+      final file = File(path);
+      await file.parent.create(recursive: true);
+      final sink = file.openWrite();
+      var received = 0;
+      final total = response.contentLength;
+      final started = DateTime.now();
+      try {
+        await for (final chunk in response) {
+          received += chunk.length;
+          sink.add(chunk);
+          final elapsedMs = max(
+            DateTime.now().difference(started).inMilliseconds,
+            1,
+          );
+          final kibPerSec = received / elapsedMs * 1000 / 1024;
+          final progress = total > 0 ? (received / total).clamp(0.0, 0.99) : 0.2;
+          onProgress(progress, '${kibPerSec.toStringAsFixed(0)} KiB/s');
+        }
+        await sink.flush();
+      } catch (error) {
+        await sink.close();
+        try {
+          await file.delete();
+        } catch (_) {}
+        throw StateError('下载中断：$error');
+      }
+      await sink.close();
+      if (received <= 0) {
+        try {
+          await file.delete();
+        } catch (_) {}
+        throw StateError('文件为空，请稍后重试');
+      }
+    } on SocketException {
+      throw StateError('无法下载，请确认网络或代理已开启');
+    } finally {
+      client.close(force: true);
+    }
   }
 
   static String formatSavedStampLabel(DateTime time) {
