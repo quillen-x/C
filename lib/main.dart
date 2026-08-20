@@ -127,10 +127,14 @@ class _RootState extends State<_Root> {
 
   void _select(AppPage page) {
     setState(() {
+      final media = AppScope.of(context).settings.visibleMedia;
       if (page == AppPage.xFeed && !_page.isMediaHub) {
-        page = _mediaPage;
+        page = media.allows(_mediaPage) ? _mediaPage : media.defaultPage;
       }
       if (page.isMediaHub) {
+        if (!media.allows(page)) {
+          page = media.defaultPage;
+        }
         _mediaPage = page;
         _ensurePage(AppPage.xFeed);
         _ensurePage(AppPage.xPhotos);
@@ -152,6 +156,16 @@ class _RootState extends State<_Root> {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
+    }
+    final media = app.settings.visibleMedia;
+    if (_page.isMediaHub && !media.allows(_page)) {
+      final next = media.defaultPage;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _select(next);
+      });
     }
     final stacked = _stackOrder.where(_pages.containsKey).toList();
     final index = stacked.indexOf(_page);

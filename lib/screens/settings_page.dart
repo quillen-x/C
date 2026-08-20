@@ -67,6 +67,9 @@ class _SettingsPageState extends State<SettingsPage> {
       hiddenDownloads: List<String>.from(
         AppScope.of(context).settings.hiddenDownloads,
       ),
+      categoryMedia: Map<String, CategoryMediaConfig>.from(
+        AppScope.of(context).settings.categoryMedia,
+      ),
     );
   }
 

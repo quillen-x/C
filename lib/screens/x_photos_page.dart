@@ -30,6 +30,9 @@ class _XPhotosPageState extends State<XPhotosPage> {
   }
 
   Future<void> _load() async {
+    if (_loading) {
+      return;
+    }
     setState(() {
       _started = true;
       _loading = true;
@@ -40,6 +43,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
     final names = await app.visibleUsernames(
       from: app.settings.xFollowing,
       specialOnly: true,
+      mediaPage: AppPage.xPhotos,
     );
     try {
       if (names.isEmpty) {
@@ -93,21 +97,18 @@ class _XPhotosPageState extends State<XPhotosPage> {
   @override
   Widget build(BuildContext context) {
     final names = AppScope.of(context).settings.xFollowing;
-    return _buildBody(names.isEmpty);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _buildBody(names.isEmpty),
+        RefreshFab(onPressed: _load, busy: _loading),
+      ],
+    );
   }
 
   Widget _buildBody(bool emptyFollowing) {
-    if (!_started) {
-      return Center(
-        child: PrimaryButton(
-          label: '加载图片',
-          icon: Icons.photo_outlined,
-          onPressed: _load,
-        ),
-      );
-    }
-    if (_loading && _photos.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+    if (!_started || (_loading && _photos.isEmpty)) {
+      return const SizedBox.expand();
     }
     if (emptyFollowing) {
       return const EmptyHint(

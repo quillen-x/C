@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 import '../models.dart';
 import '../theme.dart';
 import 'app_layout.dart';
+import 'app_scope.dart';
 
 class _NavAssets {
   static const search = 'assets/images/search.svg';
@@ -57,6 +58,8 @@ class HomeShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final media = AppScope.of(context).settings.visibleMedia;
+    final showSwitcher = page.isMediaHub && media.allowedPages.length > 1;
     final content = Stack(
       fit: StackFit.expand,
       children: [
@@ -66,12 +69,13 @@ class HomeShell extends StatelessWidget {
           right: 0,
           bottom: 16.h,
           child: IgnorePointer(
-            ignoring: !page.isMediaHub,
+            ignoring: !showSwitcher,
             child: Opacity(
-              opacity: page.isMediaHub ? 1 : 0,
+              opacity: showSwitcher ? 1 : 0,
               child: Center(
                 child: _MediaSubTabs(
-                  page: page.isMediaHub ? page : AppPage.xFeed,
+                  page: page.isMediaHub ? page : media.defaultPage,
+                  allowed: media,
                   onSelect: onSelect,
                 ),
               ),
@@ -312,10 +316,12 @@ class _Sidebar extends StatelessWidget {
 class _MediaSubTabs extends StatelessWidget {
   const _MediaSubTabs({
     required this.page,
+    required this.allowed,
     required this.onSelect,
   });
 
   final AppPage page;
+  final CategoryMediaConfig allowed;
   final ValueChanged<AppPage> onSelect;
 
   @override
@@ -341,21 +347,24 @@ class _MediaSubTabs extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _item(
-                label: '动态',
-                icon: Icons.dynamic_feed_outlined,
-                target: AppPage.xFeed,
-              ),
-              _item(
-                label: '图片',
-                icon: Icons.photo_outlined,
-                target: AppPage.xPhotos,
-              ),
-              _item(
-                label: '视频',
-                icon: Icons.smart_display_outlined,
-                target: AppPage.x,
-              ),
+              if (allowed.posts)
+                _item(
+                  label: '动态',
+                  icon: Icons.dynamic_feed_outlined,
+                  target: AppPage.xFeed,
+                ),
+              if (allowed.photos)
+                _item(
+                  label: '图片',
+                  icon: Icons.photo_outlined,
+                  target: AppPage.xPhotos,
+                ),
+              if (allowed.videos)
+                _item(
+                  label: '视频',
+                  icon: Icons.smart_display_outlined,
+                  target: AppPage.x,
+                ),
             ],
           ),
         ),

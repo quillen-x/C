@@ -19,6 +19,71 @@ enum TaskStatus { queued, running, done, failed, canceled }
 
 enum VideoQuality { best, p1080, p720, p480, audio }
 
+class CategoryMediaConfig {
+  const CategoryMediaConfig({
+    this.posts = true,
+    this.photos = true,
+    this.videos = true,
+  });
+
+  final bool posts;
+  final bool photos;
+  final bool videos;
+
+  static const all = CategoryMediaConfig();
+
+  bool get isEmpty => !posts && !photos && !videos;
+
+  List<AppPage> get allowedPages => <AppPage>[
+        if (posts) AppPage.xFeed,
+        if (photos) AppPage.xPhotos,
+        if (videos) AppPage.x,
+      ];
+
+  AppPage get defaultPage =>
+      allowedPages.isEmpty ? AppPage.xFeed : allowedPages.first;
+
+  bool allows(AppPage page) {
+    switch (page) {
+      case AppPage.xFeed:
+        return posts;
+      case AppPage.xPhotos:
+        return photos;
+      case AppPage.x:
+        return videos;
+      default:
+        return true;
+    }
+  }
+
+  CategoryMediaConfig copyWith({bool? posts, bool? photos, bool? videos}) {
+    return CategoryMediaConfig(
+      posts: posts ?? this.posts,
+      photos: photos ?? this.photos,
+      videos: videos ?? this.videos,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'posts': posts,
+      'photos': photos,
+      'videos': videos,
+    };
+  }
+
+  static CategoryMediaConfig fromJson(dynamic raw) {
+    if (raw is! Map) {
+      return const CategoryMediaConfig();
+    }
+    return CategoryMediaConfig(
+      posts: raw['posts'] as bool? ?? true,
+      photos: raw['photos'] as bool? ?? true,
+      videos: raw['videos'] as bool? ?? true,
+    );
+  }
+}
+
 class AppSettings {
   AppSettings({
     this.proxyEnabled = true,
@@ -30,6 +95,7 @@ class AppSettings {
     List<String>? visibleCategories,
     List<String>? categories,
     List<String>? hiddenDownloads,
+    Map<String, CategoryMediaConfig>? categoryMedia,
   }) : xFollowing = xFollowing == null
             ? <String>[]
             : List<String>.from(xFollowing),
@@ -41,7 +107,10 @@ class AppSettings {
             : List<String>.from(categories),
         hiddenDownloads = hiddenDownloads == null
             ? <String>[]
-            : List<String>.from(hiddenDownloads);
+            : List<String>.from(hiddenDownloads),
+        categoryMedia = categoryMedia == null
+            ? <String, CategoryMediaConfig>{}
+            : Map<String, CategoryMediaConfig>.from(categoryMedia);
 
   bool proxyEnabled;
   String proxyHost;
@@ -52,6 +121,7 @@ class AppSettings {
   List<String> visibleCategories;
   List<String> categories;
   List<String> hiddenDownloads;
+  Map<String, CategoryMediaConfig> categoryMedia;
 
   String get proxyAddress {
     final host = proxyHost.trim();
@@ -78,6 +148,34 @@ class AppSettings {
     return visibleCategories.any((item) => item.trim().toLowerCase() == key);
   }
 
+  CategoryMediaConfig mediaFor(String category) {
+    final key = category.trim().toLowerCase();
+    return categoryMedia[key] ?? CategoryMediaConfig.all;
+  }
+
+  /// 当前打开分类所支持的内容类型（并集）。未打开任何分类时默认全部支持。
+  CategoryMediaConfig get visibleMedia {
+    final keys = visibleCategories
+        .map((item) => item.trim().toLowerCase())
+        .toList();
+    if (keys.isEmpty) {
+      return CategoryMediaConfig.all;
+    }
+    var posts = false;
+    var photos = false;
+    var videos = false;
+    for (final key in keys) {
+      final media = mediaFor(key);
+      posts = posts || media.posts;
+      photos = photos || media.photos;
+      videos = videos || media.videos;
+    }
+    if (!posts && !photos && !videos) {
+      return CategoryMediaConfig.all;
+    }
+    return CategoryMediaConfig(posts: posts, photos: photos, videos: videos);
+  }
+
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'proxyEnabled': proxyEnabled,
@@ -89,6 +187,9 @@ class AppSettings {
       'visibleCategories': visibleCategories,
       'categories': categories,
       'hiddenDownloads': hiddenDownloads,
+      'categoryMedia': categoryMedia.map(
+        (key, value) => MapEntry(key, value.toJson()),
+      ),
     };
   }
 
@@ -97,6 +198,18 @@ class AppSettings {
         .map((item) => '$item'.trim().toLowerCase())
         .where((item) => keepEmpty || item.isNotEmpty)
         .toList();
+  }
+
+  static Map<String, CategoryMediaConfig> _mediaMap(dynamic raw) {
+    if (raw is! Map) {
+      return <String, CategoryMediaConfig>{};
+    }
+    return raw.map<String, CategoryMediaConfig>((key, value) {
+      return MapEntry(
+        '$key'.trim().toLowerCase(),
+        CategoryMediaConfig.fromJson(value),
+      );
+    });
   }
 
   static AppSettings fromJson(Map<String, dynamic> json) {
@@ -116,6 +229,7 @@ class AppSettings {
           .map((item) => '$item'.trim())
           .where((item) => item.isNotEmpty)
           .toList(),
+      categoryMedia: _mediaMap(json['categoryMedia']),
     );
   }
 

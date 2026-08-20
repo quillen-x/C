@@ -24,6 +24,9 @@ class _VideoPageState extends State<VideoPage> {
   String? _error;
 
   Future<void> _load() async {
+    if (_loading) {
+      return;
+    }
     final app = AppScope.of(context);
     setState(() {
       _started = true;
@@ -32,7 +35,10 @@ class _VideoPageState extends State<VideoPage> {
       _noSpecial = false;
     });
     try {
-      final accounts = await app.visibleAccounts(specialOnly: true);
+      final accounts = await app.visibleAccounts(
+        specialOnly: true,
+        mediaPage: AppPage.x,
+      );
       final names = accounts.map((account) => account.username).toList();
       if (names.isEmpty) {
         if (!mounted) {
@@ -138,21 +144,18 @@ class _VideoPageState extends State<VideoPage> {
 
   @override
   Widget build(BuildContext context) {
-    return _buildBody();
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _buildBody(),
+        RefreshFab(onPressed: _load, busy: _loading),
+      ],
+    );
   }
 
   Widget _buildBody() {
-    if (!_started) {
-      return Center(
-        child: PrimaryButton(
-          label: '加载视频',
-          icon: Icons.smart_display_outlined,
-          onPressed: _load,
-        ),
-      );
-    }
-    if (_loading && _videos.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+    if (!_started || (_loading && _videos.isEmpty)) {
+      return const SizedBox.expand();
     }
     if (_error != null && _videos.isEmpty) {
       return EmptyHint(

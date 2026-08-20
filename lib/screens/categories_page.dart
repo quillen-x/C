@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../models.dart';
 import '../services/account_db.dart';
@@ -23,6 +24,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
   Map<String, int> _categoryCounts = <String, int>{};
   List<String> _visibleCategories = <String>[];
   List<String> _categories = <String>[];
+  Map<String, CategoryMediaConfig> _categoryMedia = <String, CategoryMediaConfig>{};
   bool _hydrated = false;
   bool _loaded = false;
   String? _syncingCategory;
@@ -44,6 +46,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
     final settings = AppScope.of(context).settings;
     _visibleCategories = List<String>.from(settings.visibleCategories);
     _categories = List<String>.from(settings.categories);
+    _categoryMedia = Map<String, CategoryMediaConfig>.from(settings.categoryMedia);
   }
 
   @override
@@ -57,6 +60,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
     final next = app.settings.copy();
     next.visibleCategories = List<String>.from(_visibleCategories);
     next.categories = List<String>.from(_categories);
+    next.categoryMedia = Map<String, CategoryMediaConfig>.from(_categoryMedia);
     await app.saveSettings(next);
   }
 
@@ -214,6 +218,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
         _visibleCategories.removeWhere(
           (item) => item.trim().toLowerCase() == key,
         );
+        _categoryMedia.remove(key);
       });
       await _save();
       if (!mounted) {
@@ -272,6 +277,99 @@ class _CategoriesPageState extends State<CategoriesPage> {
       }
     });
     await _save();
+  }
+
+  CategoryMediaConfig _mediaFor(String category) {
+    final key = category.trim().toLowerCase();
+    return _categoryMedia[key] ?? CategoryMediaConfig.all;
+  }
+
+  Future<void> _toggleCategoryMedia(
+    String category, {
+    bool? posts,
+    bool? photos,
+    bool? videos,
+  }) async {
+    final key = category.trim().toLowerCase();
+    final next = _mediaFor(key).copyWith(
+      posts: posts,
+      photos: photos,
+      videos: videos,
+    );
+    if (next.isEmpty) {
+      showAppSnack(context, '至少保留一种内容', error: true);
+      return;
+    }
+    setState(() => _categoryMedia[key] = next);
+    await _save();
+  }
+
+  Widget _mediaChip({
+    required String asset,
+    required String tooltip,
+    required bool on,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: on ? AppColors.accent.withValues(alpha: 0.22) : AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(10.w),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10.w),
+          child: Padding(
+            padding: EdgeInsets.all(8.w),
+            child: SvgPicture.asset(
+              asset,
+              width: 18.w,
+              height: 18.w,
+              colorFilter: ColorFilter.mode(
+                on ? AppColors.accent : AppColors.textMuted,
+                BlendMode.srcIn,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _iconAction({
+    required String asset,
+    required String tooltip,
+    required VoidCallback? onPressed,
+    Color? color,
+    bool busy = false,
+  }) {
+    final enabled = onPressed != null && !busy;
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: enabled ? onPressed : null,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.all(8.w),
+      constraints: BoxConstraints(minWidth: 36.w, minHeight: 36.h),
+      icon: busy
+          ? SizedBox(
+              width: 16.w,
+              height: 16.w,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.w,
+                color: AppColors.textMuted,
+              ),
+            )
+          : SvgPicture.asset(
+              asset,
+              width: 18.w,
+              height: 18.w,
+              colorFilter: ColorFilter.mode(
+                enabled
+                    ? (color ?? AppColors.textMuted)
+                    : AppColors.textMuted.withValues(alpha: 0.35),
+                BlendMode.srcIn,
+              ),
+            ),
+    );
   }
 
   Future<void> _syncCategory(String category) async {
@@ -423,6 +521,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
         setState(() {
           _visibleCategories = List<String>.from(settings.visibleCategories);
           _categories = List<String>.from(settings.categories);
+          _categoryMedia = Map<String, CategoryMediaConfig>.from(
+            settings.categoryMedia,
+          );
         });
         _loadCategories();
       });
@@ -461,26 +562,11 @@ class _CategoriesPageState extends State<CategoriesPage> {
                     Text('关注分类', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800)),
                    
                     SizedBox(height: 12.h),
-                    Stack(
-                      alignment: Alignment.centerRight,
-                      children: [
-                        AppTextField(
-                          controller: _newCategory,
-                          hint: '新分类名，例如 news',
-                          isDense: true,
-                          contentPadding: EdgeInsets.fromLTRB(14.w, 10.h, 72.w, 20.h),
-                          onSubmitted: (_) => _addCategory(),
-                        ),
-                        Padding(
-                          padding: EdgeInsets.only(right: 6.w),
-                          child: PrimaryButton(
-                            label: '新增',
-                            color: AppColors.x,
-                            compact: true,
-                            onPressed: _addCategory,
-                          ),
-                        ),
-                      ],
+                    InlineActionField(
+                      controller: _newCategory,
+                      hint: '新分类名，例如 news',
+                      actionLabel: '新增',
+                      onAction: _addCategory,
                     ),
                     SizedBox(height: 8.h),
                     ..._categoryKeys.map((key) {
@@ -488,76 +574,108 @@ class _CategoriesPageState extends State<CategoriesPage> {
                       final on = _visibleCategories.any(
                         (item) => item.trim().toLowerCase() == key,
                       );
+                      final media = _mediaFor(key);
                       final syncing = _syncingCategory == key;
                       final exporting = _exportingCategory == key;
                       final busy = _purging || _syncingCategory != null;
                       return Padding(
-                        padding: EdgeInsets.symmetric(vertical: 4.h),
-                        child: Row(
+                        padding: EdgeInsets.symmetric(vertical: 8.h),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    XAccount.categoryLabel(key),
-                                    style: TextStyle(
-                                      fontSize: 15.sp,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        XAccount.categoryLabel(key),
+                                        style: TextStyle(
+                                          fontSize: 15.sp,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      Text(
+                                        '$count 人',
+                                        style: TextStyle(
+                                          color: AppColors.textMuted,
+                                          fontSize: 12.sp,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  Text(
-                                    '$count 人',
-                                    style: TextStyle(
-                                      color: AppColors.textMuted,
-                                      fontSize: 12.sp,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () => _viewCategory(key),
-                              child: Text(
-                                '查看',
-                                style: TextStyle(fontSize: 13.sp),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: busy || _exportingCategory != null
-                                  ? null
-                                  : () => _exportCategory(key),
-                              child: Text(
-                                exporting ? '导出中' : '导出',
-                                style: TextStyle(fontSize: 13.sp),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: busy ? null : () => _deleteCategory(key),
-                              child: Text(
-                                '删除',
-                                style: TextStyle(
-                                  fontSize: 13.sp,
-                                  color: busy
-                                      ? AppColors.textMuted
-                                      : AppColors.danger,
                                 ),
-                              ),
+                                _iconAction(
+                                  asset: 'assets/images/watch.svg',
+                                  tooltip: '查看',
+                                  onPressed: () => _viewCategory(key),
+                                ),
+                                _iconAction(
+                                  asset: 'assets/images/export.svg',
+                                  tooltip: exporting ? '导出中' : '导出',
+                                  busy: exporting,
+                                  onPressed: busy || _exportingCategory != null
+                                      ? null
+                                      : () => _exportCategory(key),
+                                ),
+                                _iconAction(
+                                  asset: 'assets/images/delete.svg',
+                                  tooltip: '删除',
+                                  color: AppColors.danger,
+                                  onPressed: busy
+                                      ? null
+                                      : () => _deleteCategory(key),
+                                ),
+                                _iconAction(
+                                  asset: 'assets/images/sync.svg',
+                                  tooltip: syncing ? '同步中' : '同步资料',
+                                  busy: syncing,
+                                  onPressed: _syncingCategory != null
+                                      ? null
+                                      : () => _syncCategory(key),
+                                ),
+                                Switch(
+                                  value: on,
+                                  activeThumbColor: AppColors.accent,
+                                  onChanged: (value) =>
+                                      _toggleCategory(key, value),
+                                ),
+                              ],
                             ),
-                            TextButton(
-                              onPressed: _syncingCategory != null
-                                  ? null
-                                  : () => _syncCategory(key),
-                              child: Text(
-                                syncing ? '同步中' : '同步资料',
-                                style: TextStyle(fontSize: 13.sp),
-                              ),
-                            ),
-                            Switch(
-                              value: on,
-                              activeThumbColor: AppColors.accent,
-                              onChanged: (value) =>
-                                  _toggleCategory(key, value),
+                            SizedBox(height: 6.h),
+                            Wrap(
+                              spacing: 6.w,
+                              runSpacing: 6.h,
+                              children: [
+                                _mediaChip(
+                                  asset: 'assets/images/posts.svg',
+                                  tooltip: '帖子',
+                                  on: media.posts,
+                                  onTap: () => _toggleCategoryMedia(
+                                    key,
+                                    posts: !media.posts,
+                                  ),
+                                ),
+                                _mediaChip(
+                                  asset: 'assets/images/image.svg',
+                                  tooltip: '图片',
+                                  on: media.photos,
+                                  onTap: () => _toggleCategoryMedia(
+                                    key,
+                                    photos: !media.photos,
+                                  ),
+                                ),
+                                _mediaChip(
+                                  asset: 'assets/images/video.svg',
+                                  tooltip: '视频',
+                                  on: media.videos,
+                                  onTap: () => _toggleCategoryMedia(
+                                    key,
+                                    videos: !media.videos,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),

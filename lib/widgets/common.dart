@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/io_helpers.dart';
 import '../theme.dart';
@@ -109,6 +110,7 @@ class PrimaryButton extends StatelessWidget {
     this.color,
     this.busy = false,
     this.compact = false,
+    this.expand = false,
   });
 
   final String label;
@@ -117,6 +119,7 @@ class PrimaryButton extends StatelessWidget {
   final Color? color;
   final bool busy;
   final bool compact;
+  final bool expand;
 
   @override
   Widget build(BuildContext context) {
@@ -125,15 +128,24 @@ class PrimaryButton extends StatelessWidget {
       backgroundColor: background,
       foregroundColor: Colors.black,
       disabledBackgroundColor: background.withValues(alpha: 0.4),
-      minimumSize: compact ? Size(0, 32.h) : null,
-      tapTargetSize: compact ? MaterialTapTargetSize.shrinkWrap : null,
-      visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+      minimumSize: expand
+          ? const Size(0, 0)
+          : (compact ? Size(0, 32.h) : null),
+      tapTargetSize: (compact || expand)
+          ? MaterialTapTargetSize.shrinkWrap
+          : null,
+      visualDensity: expand
+          ? VisualDensity.standard
+          : (compact ? VisualDensity.compact : VisualDensity.standard),
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 12.w : 16.w,
-        vertical: compact ? 6.h : 12.h,
+        horizontal: compact || expand ? 12.w : 16.w,
+        vertical: expand ? 0 : (compact ? 6.h : 12.h),
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.w)),
-      textStyle: TextStyle(fontWeight: FontWeight.w700, fontSize: compact ? 12.sp : 13.sp),
+      textStyle: TextStyle(
+        fontWeight: FontWeight.w700,
+        fontSize: compact || expand ? 12.sp : 13.sp,
+      ),
     );
     if (icon == null && !busy) {
       return ElevatedButton(
@@ -145,13 +157,62 @@ class PrimaryButton extends StatelessWidget {
     return ElevatedButton.icon(
       onPressed: busy ? null : onPressed,
       icon: busy
-          ? SizedBox(width: 14.w,
+          ? SizedBox(
+              width: 14.w,
               height: 14.h,
               child: CircularProgressIndicator(strokeWidth: 2.w, color: Colors.black),
             )
           : Icon(icon ?? Icons.download_rounded, size: 18.w),
       label: Text(label),
       style: style,
+    );
+  }
+}
+
+class InlineActionField extends StatelessWidget {
+  const InlineActionField({
+    super.key,
+    required this.controller,
+    required this.hint,
+    required this.actionLabel,
+    required this.onAction,
+    this.busy = false,
+    this.actionColor,
+  });
+
+  final TextEditingController controller;
+  final String hint;
+  final String actionLabel;
+  final VoidCallback onAction;
+  final bool busy;
+  final Color? actionColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.centerRight,
+      children: [
+        AppTextField(
+          controller: controller,
+          hint: hint,
+          isDense: true,
+          contentPadding: EdgeInsets.fromLTRB(14.w, 10.h, 72.w, 20.h),
+          onSubmitted: (_) => onAction(),
+        ),
+        Positioned(
+          right: 6.w,
+          top: 6.h,
+          bottom: 6.h,
+          child: PrimaryButton(
+            label: actionLabel,
+            color: actionColor ?? AppColors.x,
+            compact: true,
+            expand: true,
+            busy: busy,
+            onPressed: onAction,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -372,6 +433,59 @@ class XAvatar extends StatelessWidget {
                   child: Icon(Icons.person, size: (size * 0.57).w, color: AppColors.textMuted),
                 ),
               ),
+      ),
+    );
+  }
+}
+
+class RefreshFab extends StatelessWidget {
+  const RefreshFab({
+    super.key,
+    required this.onPressed,
+    this.busy = false,
+  });
+
+  final VoidCallback? onPressed;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      right: 16.w,
+      bottom: 16.h,
+      child: Material(
+        color: AppColors.surface,
+        elevation: 8,
+        shadowColor: Colors.black.withValues(alpha: 0.4),
+        shape: CircleBorder(side: BorderSide(color: AppColors.border)),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: busy ? null : onPressed,
+          child: SizedBox(
+            width: 48.w,
+            height: 48.w,
+            child: Center(
+              child: busy
+                  ? SizedBox(
+                      width: 20.w,
+                      height: 20.w,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.w,
+                        color: AppColors.accent,
+                      ),
+                    )
+                  : SvgPicture.asset(
+                      'assets/images/refrsh.svg',
+                      width: 22.w,
+                      height: 22.w,
+                      colorFilter: const ColorFilter.mode(
+                        AppColors.textMuted,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+            ),
+          ),
+        ),
       ),
     );
   }

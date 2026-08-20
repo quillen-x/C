@@ -305,19 +305,30 @@ class AppController extends ChangeNotifier {
     return settings.showsCategory(account.category);
   }
 
-  Future<List<XAccount>> visibleAccounts({bool specialOnly = false}) async {
+  bool _allowsMedia(XAccount account, AppPage? mediaPage) {
+    if (mediaPage == null || !mediaPage.isMediaHub) {
+      return true;
+    }
+    return settings.mediaFor(account.category).allows(mediaPage);
+  }
+
+  Future<List<XAccount>> visibleAccounts({
+    bool specialOnly = false,
+    AppPage? mediaPage,
+  }) async {
     final rows = await accountDb.loadAll();
     return rows.where((account) {
       if (specialOnly && !account.special) {
         return false;
       }
-      return showsAccount(account);
+      return showsAccount(account) && _allowsMedia(account, mediaPage);
     }).toList();
   }
 
   Future<List<String>> visibleUsernames({
     List<String>? from,
     bool specialOnly = false,
+    AppPage? mediaPage,
   }) async {
     final allowed = from ??
         (await accountDb.loadAll()).map((account) => account.username).toList();
@@ -325,12 +336,16 @@ class AppController extends ChangeNotifier {
     return allowed.where((username) {
       final account = map[username.toLowerCase()];
       if (account == null) {
-        return !specialOnly && settings.showsCategory('');
+        return !specialOnly &&
+            settings.showsCategory('') &&
+            (mediaPage == null ||
+                !mediaPage.isMediaHub ||
+                settings.mediaFor('').allows(mediaPage));
       }
       if (specialOnly && !account.special) {
         return false;
       }
-      return showsAccount(account);
+      return showsAccount(account) && _allowsMedia(account, mediaPage);
     }).toList();
   }
 

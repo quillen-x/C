@@ -35,6 +35,9 @@ class _XFeedPageState extends State<XFeedPage> {
   }
 
   Future<void> _load() async {
+    if (_loading) {
+      return;
+    }
     final id = ++_loadId;
     setState(() {
       _started = true;
@@ -47,6 +50,7 @@ class _XFeedPageState extends State<XFeedPage> {
     final names = await app.visibleUsernames(
       from: app.settings.xFollowing,
       specialOnly: true,
+      mediaPage: AppPage.xFeed,
     );
     final profiles = await app.accountDb.loadMap();
     if (!mounted || id != _loadId) {
@@ -129,21 +133,18 @@ class _XFeedPageState extends State<XFeedPage> {
   @override
   Widget build(BuildContext context) {
     final names = AppScope.of(context).settings.xFollowing;
-    return _buildBody(names.isEmpty);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _buildBody(names.isEmpty),
+        RefreshFab(onPressed: _load, busy: _loading),
+      ],
+    );
   }
 
   Widget _buildBody(bool emptyFollowing) {
-    if (!_started) {
-      return Center(
-        child: PrimaryButton(
-          label: '加载帖子',
-          icon: Icons.dynamic_feed_outlined,
-          onPressed: _load,
-        ),
-      );
-    }
-    if (_loading && _posts.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+    if (!_started || (_loading && _posts.isEmpty)) {
+      return const SizedBox.expand();
     }
     if (emptyFollowing) {
       return const EmptyHint(
@@ -893,27 +894,12 @@ class _AccountList extends StatelessWidget {
         children: [
           Padding(
             padding: EdgeInsets.only(right: 10.w),
-            child: Stack(
-            alignment: Alignment.centerRight,
-            children: [
-              AppTextField(
-                controller: input,
-                hint: 'NASA',
-                isDense: true,
-                contentPadding: EdgeInsets.fromLTRB(14.w, 10.h, 72.w, 20.h),
-                onSubmitted: (_) => onAdd(),
-              ),
-              Padding(
-                padding: EdgeInsets.only(right: 6.w),
-                child: PrimaryButton(
-                  label: '关注',
-                  color: AppColors.x,
-                  compact: true,
-                  busy: adding,
-                  onPressed: onAdd,
-                ),
-              ),
-            ],
+            child: InlineActionField(
+              controller: input,
+              hint: 'NASA',
+              actionLabel: '关注',
+              busy: adding,
+              onAction: onAdd,
             ),
           ),
           SizedBox(height: 10.h),
