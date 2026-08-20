@@ -7,6 +7,7 @@ import '../widgets/app_layout.dart';
 import '../widgets/app_scope.dart';
 import '../widgets/common.dart';
 import '../widgets/media_viewer.dart';
+import 'x_following_page.dart';
 
 class XPhotosPage extends StatefulWidget {
   const XPhotosPage({super.key});
@@ -90,6 +91,39 @@ class _XPhotosPageState extends State<XPhotosPage> {
     return photos;
   }
 
+  Future<void> _openProfile(String username) async {
+    final app = AppScope.of(context);
+    XAccount? account = await app.accountDb.get(username);
+    if (account == null) {
+      try {
+        account = await app.xFollowingService.fetchAccount(username);
+      } catch (_) {
+        account = XAccount(
+          username: username,
+          name: username,
+          description: '',
+          avatarUrl: '',
+          profileUrl: 'https://x.com/$username',
+          followers: 0,
+          following: 0,
+          tweets: 0,
+        );
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    final removed = await showAccountHome(context, account);
+    if (!removed || !mounted) {
+      return;
+    }
+    setState(() {
+      _photos.removeWhere(
+        (item) => item.post.username.toLowerCase() == username.toLowerCase(),
+      );
+    });
+  }
+
   int _columns(BuildContext context) {
     return AppLayout.isCompact(context) ? 2 : 4;
   }
@@ -149,6 +183,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
       photos: _photos,
       controller: _scroll,
       columns: _columns(context),
+      onOpenProfile: _openProfile,
     );
   }
 }
@@ -158,11 +193,13 @@ class _PhotoWaterfall extends StatelessWidget {
     required this.photos,
     required this.controller,
     required this.columns,
+    required this.onOpenProfile,
   });
 
   final List<_FollowedPhoto> photos;
   final ScrollController controller;
   final int columns;
+  final ValueChanged<String> onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -196,7 +233,10 @@ class _PhotoWaterfall extends StatelessWidget {
                         for (final photo in buckets[c])
                           Padding(
                             padding: EdgeInsets.only(bottom: 8.h),
-                            child: _PhotoTile(item: photo),
+                            child: _PhotoTile(
+                              item: photo,
+                              onOpenProfile: () => onOpenProfile(photo.post.username),
+                            ),
                           ),
                       ],
                     ),
@@ -238,9 +278,13 @@ double _photoRatio(XMedia media) {
 }
 
 class _PhotoTile extends StatelessWidget {
-  const _PhotoTile({required this.item});
+  const _PhotoTile({
+    required this.item,
+    required this.onOpenProfile,
+  });
 
   final _FollowedPhoto item;
+  final VoidCallback onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -252,36 +296,40 @@ class _PhotoTile extends StatelessWidget {
       color: AppColors.surfaceAlt,
       borderRadius: BorderRadius.circular(12.w),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => showPostMedia(
-          context,
-          item.post.media,
-          item.index,
-          username: item.post.username,
-          displayName: item.post.displayName,
-        ),
-        child: AspectRatio(
-          aspectRatio: _photoRatio(item.media),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              ColoredBox(
-                color: AppColors.surface,
-                child: imageUrl.isEmpty
-                    ? Icon(Icons.photo_outlined, size: 36.w, color: AppColors.textMuted)
-                    : AppNetworkImage(
-                        url: imageUrl,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 480,
-                        error: Center(
-                          child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted, size: 32.w),
+      child: AspectRatio(
+        aspectRatio: _photoRatio(item.media),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned.fill(
+              child: InkWell(
+                onTap: () => showPostMedia(
+                  context,
+                  item.post.media,
+                  item.index,
+                  username: item.post.username,
+                  displayName: item.post.displayName,
+                ),
+                child: ColoredBox(
+                  color: AppColors.surface,
+                  child: imageUrl.isEmpty
+                      ? Icon(Icons.photo_outlined, size: 36.w, color: AppColors.textMuted)
+                      : AppNetworkImage(
+                          url: imageUrl,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 480,
+                          error: Center(
+                            child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted, size: 32.w),
+                          ),
                         ),
-                      ),
+                ),
               ),
-              if (extra > 1)
-                Positioned(
-                  top: 8.h,
-                  right: 8.w,
+            ),
+            if (extra > 1)
+              Positioned(
+                top: 8.h,
+                right: 8.w,
+                child: IgnorePointer(
                   child: Container(
                     padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
                     decoration: BoxDecoration(
@@ -298,35 +346,44 @@ class _PhotoTile extends StatelessWidget {
                     ),
                   ),
                 ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: DecoratedBox(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: <Color>[Color(0x00000000), Color(0xCC000000)],
-                    ),
+              ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[Color(0x00000000), Color(0xCC000000)],
                   ),
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(10.w, 18.h, 10.w, 10.h),
-                    child: Text(
-                      '@${item.post.username}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12.sp,
-                        fontWeight: FontWeight.w700,
+                ),
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(10.w, 18.h, 10.w, 10.h),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: onOpenProfile,
+                      behavior: HitTestBehavior.opaque,
+                      child: Text(
+                        item.post.displayName.isEmpty
+                            ? '@${item.post.username}'
+                            : item.post.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.sp,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

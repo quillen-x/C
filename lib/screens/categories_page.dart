@@ -1262,7 +1262,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
                       Expanded(
                         child: _purgeField(
                           controller: _followersMax,
-                          hint: '粉丝少于，例如 100',
+                          hint: '粉丝',
                           onDelete: _busy ? null : _purgeFollowersLessThan,
                         ),
                       ),
@@ -1270,7 +1270,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
                       Expanded(
                         child: _purgeField(
                           controller: _tweetsMax,
-                          hint: '推文少于，例如 50',
+                          hint: '推文',
                           onDelete: _busy ? null : _purgeTweetsLessThan,
                         ),
                       ),
@@ -1278,7 +1278,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
                       Expanded(
                         child: _purgeField(
                           controller: _followingMax,
-                          hint: '关注少于，例如 100',
+                          hint: '关注',
                           onDelete: _busy ? null : _purgeFollowingLessThan,
                         ),
                       ),
@@ -1294,7 +1294,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
                       Expanded(
                         child: _purgeField(
                           controller: _inactiveDays,
-                          hint: '未发帖天数，例如 15',
+                          hint: '未发帖天数',
                           actionLabel: '扫描',
                           actionColor: AppColors.accent,
                           onDelete: _busy ? null : _scanInactive,
