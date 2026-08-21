@@ -425,10 +425,37 @@ class _XSearchPageState extends State<XSearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final phone = AppLayout.isCompact(context);
+    final busy = _searchUsers ? _usersLoading : _postsLoading;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (widget.dialog)
+        if (phone)
+          PhoneNavBar(
+            height: 56,
+            onBack: () => Navigator.of(context).pop(),
+            titleWidget: AppTextField(
+              controller: _query,
+              hint: _searchUsers ? '名字或 @用户名' : '关键词、#话题 或 @用户',
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+              onSubmitted: (_) => _search(),
+            ),
+            trailing: Padding(
+              padding: EdgeInsets.fromLTRB(12.w, 8.h, 12.w, 8.h),
+              child: SizedBox(
+                height: 40.h,
+                child: PrimaryButton(
+                  label: '搜索',
+                  compact: true,
+                  expand: true,
+                  busy: busy,
+                  onPressed: () => _search(),
+                ),
+              ),
+            ),
+          )
+        else if (widget.dialog)
           Padding(
             padding: EdgeInsets.fromLTRB(16.w, 10.h, 8.w, 8.h),
             child: Row(
@@ -449,10 +476,15 @@ class _XSearchPageState extends State<XSearchPage> {
         else
           const SizedBox.shrink(),
         Padding(
-          padding: _searchInset(top: widget.dialog ? 0 : 16, bottom: 8),
-          child: _searchBar(),
+          padding: _searchInset(top: phone ? 8 : (widget.dialog ? 0 : 16), bottom: 8),
+          child: phone
+              ? SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: _filterChips(),
+                )
+              : _searchBar(),
         ),
-        if (widget.dialog) Divider(height: 1.h, color: AppColors.border),
+        if (phone || widget.dialog) Divider(height: 1.h, color: AppColors.border),
         Expanded(
           child: IndexedStack(
             index: _searchUsers ? 1 : 0,
@@ -485,11 +517,19 @@ class _XSearchPageState extends State<XSearchPage> {
           ),
         ),
         SizedBox(width: 8.w),
+        _filterChips(height: actionHeight),
+      ],
+    );
+  }
+
+  Widget _filterChips({double height = 28}) {
+    return Row(
+      children: [
         for (final kind in _kinds) ...[
           _chip(
             label: kind.label,
             selected: _kind == kind.id,
-            height: actionHeight,
+            height: height,
             onTap: () => _switchKind(kind.id),
           ),
           SizedBox(width: 6.w),
@@ -499,7 +539,7 @@ class _XSearchPageState extends State<XSearchPage> {
             _chip(
               label: feed.label,
               selected: _feed == feed.id,
-              height: actionHeight,
+              height: height,
               onTap: () {
                 if (_feed == feed.id) {
                   return;

@@ -148,6 +148,7 @@
 				D0B253CFDEFACC6341875566 /* Pods */,
 				685C9AF229129F1D41368E55 /* Frameworks */,
 				B9856A1174BBF36A110E30EA /* Pods.xcodeproj */,
+				9B3819E9AFA1BA5266D02222 /* Pods Products */,
 			);
 			sourceTree = "<group>";
 		};
@@ -155,12 +156,6 @@
 			isa = PBXGroup;
 			children = (
 				97C146EE1CF9000F007C117D /* Runner.app */,
-				20899127BE2DBB5448BE660C /* path_provider_foundation.framework */,
-				C171100B2806EC86328CE2ED /* Pods_Runner.framework */,
-				DA9F23781F5DC968E86C5C18 /* share_plus.framework */,
-				7882A65F88B3834DDAE0098A /* url_launcher_ios.framework */,
-				4CFD6BC43BA69A5C22378E70 /* video_player_avfoundation.framework */,
-				612E494802B0DD813598667E /* video_player_avfoundation_privacy.bundle */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -180,6 +175,19 @@
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
+			sourceTree = "<group>";
+		};
+		9B3819E9AFA1BA5266D02222 /* Pods Products */ = {
+			isa = PBXGroup;
+			children = (
+				20899127BE2DBB5448BE660C /* path_provider_foundation.framework */,
+				C171100B2806EC86328CE2ED /* Pods_Runner.framework */,
+				DA9F23781F5DC968E86C5C18 /* share_plus.framework */,
+				7882A65F88B3834DDAE0098A /* url_launcher_ios.framework */,
+				4CFD6BC43BA69A5C22378E70 /* video_player_avfoundation.framework */,
+				612E494802B0DD813598667E /* video_player_avfoundation_privacy.bundle */,
+			);
+			name = "Pods Products";
 			sourceTree = "<group>";
 		};
 		D0B253CFDEFACC6341875566 /* Pods */ = {
@@ -207,6 +215,7 @@
 				97C146EC1CF9000F007C117D /* Resources */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
+				A8E1F2B31C4D5E6F7A8B00C1 /* Sign Native Assets */,
 				F58FD222130813791FA1DDE4 /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
@@ -247,7 +256,7 @@
 			projectDirPath = "";
 			projectReferences = (
 				{
-					ProductGroup = 97C146EF1CF9000F007C117D /* Products */;
+					ProductGroup = 9B3819E9AFA1BA5266D02222 /* Pods Products */;
 					ProjectRef = B9856A1174BBF36A110E30EA /* Pods.xcodeproj */;
 				},
 			);
@@ -371,6 +380,21 @@
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
 		};
+		A8E1F2B31C4D5E6F7A8B00C1 /* Sign Native Assets */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Sign Native Assets";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ] && [ \"${CODE_SIGNING_REQUIRED:-}\" != \"NO\" ]; then\n  FRAMEWORKS_DIR=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\n  if [ -d \"$FRAMEWORKS_DIR\" ]; then\n    find \"$FRAMEWORKS_DIR\" -name '*.framework' -type d | while IFS= read -r fw; do\n      name=\"$(basename \"$fw\" .framework)\"\n      bin=\"$fw/$name\"\n      if [ -f \"$bin\" ]; then\n        /usr/bin/codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" -- \"$bin\"\n      fi\n    done\n  fi\nfi\n";
+		};
 		F58FD222130813791FA1DDE4 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -437,6 +461,7 @@
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
 				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_EXPLICIT_MODULES = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
@@ -474,7 +499,8 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
-				SUPPORTED_PLATFORMS = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
 			};
@@ -485,6 +511,7 @@
 			baseConfigurationReference = A8E1F2B31C4D5E6F7A8B0005 /* Profile.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_EXPLICIT_MODULES = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = 9JYRHPQH49;
@@ -501,6 +528,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.xujiapeng.mediaDownloader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -514,6 +542,7 @@
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
 				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_EXPLICIT_MODULES = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
@@ -558,6 +587,8 @@
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -569,6 +600,7 @@
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
 				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_EXPLICIT_MODULES = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
@@ -606,8 +638,9 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
-				SUPPORTED_PLATFORMS = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
@@ -619,6 +652,7 @@
 			baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_EXPLICIT_MODULES = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = 9JYRHPQH49;
@@ -636,6 +670,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.xujiapeng.mediaDownloader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -648,6 +683,7 @@
 			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_EXPLICIT_MODULES = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = 9JYRHPQH49;
@@ -664,6 +700,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.xujiapeng.mediaDownloader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";

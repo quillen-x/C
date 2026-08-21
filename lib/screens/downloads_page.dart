@@ -5,7 +5,6 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models.dart';
-import '../screens/settings_page.dart';
 import '../services/io_helpers.dart';
 import '../theme.dart';
 import '../widgets/app_layout.dart';
@@ -200,24 +199,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            PageHeader(
-              trailing: compact
-                  ? GhostButton(
-                      label: '设置',
-                      icon: Icons.settings_outlined,
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const Scaffold(
-                              backgroundColor: AppColors.bg,
-                              body: SafeArea(child: SettingsPage()),
-                            ),
-                          ),
-                        );
-                      },
-                    )
-                  : null,
-            ),
+            if (compact)
+              const PhoneNavBar(title: '下载', centerTitle: true)
+            else
+              const PageHeader(),
             Expanded(
               child: empty
                   ? EmptyHint(

@@ -17,22 +17,58 @@ class VideoPage extends StatefulWidget {
 }
 
 class _VideoPageState extends State<VideoPage> {
+  final ScrollController _scroll = ScrollController();
   List<_FollowedVideo> _videos = <_FollowedVideo>[];
+  Map<String, String> _cursors = <String, String>{};
   bool _loading = false;
+  bool _loadingMore = false;
   bool _started = false;
+  bool _autoLoadScheduled = false;
   bool _noSpecial = false;
   String? _error;
+
+  bool get _hasMore => _cursors.isNotEmpty;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_autoLoadScheduled) {
+      return;
+    }
+    final app = AppScope.of(context);
+    if (!app.ready || !AppLayout.isCompact(context)) {
+      return;
+    }
+    _autoLoadScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _load();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   Future<void> _load() async {
     if (_loading) {
       return;
     }
+    final compact = AppLayout.isCompact(context);
     final app = AppScope.of(context);
     setState(() {
       _started = true;
       _loading = true;
+      _loadingMore = false;
       _error = null;
       _noSpecial = false;
+      if (!compact || _videos.isEmpty) {
+        _videos = <_FollowedVideo>[];
+        _cursors = <String, String>{};
+      }
     });
     try {
       final accounts = await app.visibleAccounts(
@@ -46,27 +82,70 @@ class _VideoPageState extends State<VideoPage> {
         }
         setState(() {
           _videos = <_FollowedVideo>[];
+          _cursors = <String, String>{};
           _error = null;
           _noSpecial = true;
         });
         return;
       }
-      final posts = await app.xFollowingService.fetchVideoFeed(names);
+      final batch = await app.xFollowingService.fetchVideoFeed(names);
       if (!mounted) {
         return;
       }
-      setState(() => _videos = _flatten(posts));
+      setState(() {
+        _videos = _flatten(batch.posts);
+        _cursors = compact ? batch.cursors : <String, String>{};
+      });
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() {
-        _videos = <_FollowedVideo>[];
         _error = error.toString();
+        if (_videos.isEmpty) {
+          _cursors = <String, String>{};
+        }
       });
     } finally {
       if (mounted) {
         setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (!AppLayout.isCompact(context) || _loading || _loadingMore || !_hasMore) {
+      return;
+    }
+    setState(() => _loadingMore = true);
+    final app = AppScope.of(context);
+    try {
+      final accounts = await app.visibleAccounts(
+        specialOnly: true,
+        mediaPage: AppPage.x,
+      );
+      final names = accounts.map((account) => account.username).toList();
+      final batch = await app.xFollowingService.fetchVideoFeed(
+        names,
+        cursors: _cursors,
+      );
+      if (!mounted) {
+        return;
+      }
+      final seen = _videos.map((item) => '${item.post.id}:${item.index}').toSet();
+      final extra = _flatten(batch.posts)
+          .where((item) => seen.add('${item.post.id}:${item.index}'));
+      setState(() {
+        _videos = <_FollowedVideo>[..._videos, ...extra];
+        _cursors = batch.cursors;
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = error.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingMore = false);
       }
     }
   }
@@ -144,65 +223,121 @@ class _VideoPageState extends State<VideoPage> {
 
   @override
   Widget build(BuildContext context) {
+    final compact = AppLayout.isCompact(context);
     return Stack(
       fit: StackFit.expand,
       children: [
         _buildBody(),
-        RefreshFab(onPressed: _load, busy: _loading),
+        if (!compact) RefreshFab(onPressed: _load, busy: _loading),
       ],
     );
   }
 
+  Widget _wrapPhone(Widget child, {required bool empty}) {
+    return PhoneRefreshHost(
+      onRefresh: _load,
+      onLoadMore: _loadMore,
+      hasMore: _hasMore,
+      loadingMore: _loadingMore,
+      empty: empty,
+      child: child,
+    );
+  }
+
   Widget _buildBody() {
+    final compact = AppLayout.isCompact(context);
     if (!_started || (_loading && _videos.isEmpty)) {
+      if (compact) {
+        return const Center(child: CircularProgressIndicator());
+      }
       return const SizedBox.expand();
     }
     if (_error != null && _videos.isEmpty) {
-      return EmptyHint(
-        icon: Icons.wifi_off_rounded,
-        title: '视频加载失败',
-        detail: '$_error\n请确认 VPN 已开启后再刷新。',
+      return _wrapPhone(
+        empty: true,
+        EmptyHint(
+          icon: Icons.wifi_off_rounded,
+          title: '视频加载失败',
+          detail: '$_error\n请确认 VPN 已开启后再下拉刷新。',
+        ),
       );
     }
     if (_videos.isEmpty) {
       final noCategory = AppScope.of(context).settings.visibleCategories.isEmpty;
       if (noCategory) {
-        return const EmptyHint(
-          icon: Icons.tune,
-          title: '还没有打开任何分类',
-          detail: '到「分类」打开要看的类别。',
+        return _wrapPhone(
+          empty: true,
+          EmptyHint(
+            icon: Icons.tune,
+            title: '还没有打开任何分类',
+            detail: compact
+                ? '到关注页右上角「分类」打开要看的类别。'
+                : '到「分类」打开要看的类别。',
+          ),
         );
       }
       if (_noSpecial) {
-        return const EmptyHint(
-          icon: Icons.favorite_border_rounded,
-          title: '还没有特别关注',
-          detail: '当前分类里没有特别关注的账号。到「关注」里给想看的人点特别关注，这里只会加载这些人的视频。',
+        return _wrapPhone(
+          empty: true,
+          const EmptyHint(
+            icon: Icons.favorite_border_rounded,
+            title: '还没有特别关注',
+            detail: '当前分类里没有特别关注的账号。到「关注」里给想看的人点特别关注，这里只会加载这些人的视频。',
+          ),
         );
       }
-      return const EmptyHint(
-        icon: Icons.smart_display_outlined,
-        title: '暂时没有视频',
-        detail: '这里只显示已打开分类里特别关注的账号视频。',
+      return _wrapPhone(
+        empty: true,
+        const EmptyHint(
+          icon: Icons.smart_display_outlined,
+          title: '暂时没有视频',
+          detail: '这里只显示已打开分类里特别关注的账号视频。',
+        ),
       );
     }
     final columns = _columns(context);
-    return GridView.builder(
-      padding: EdgeInsets.fromLTRB(12.w, 16.h, 12.w, AppLayout.mediaHubBarClearance.h),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: columns,
-        mainAxisSpacing: 10.h,
-        crossAxisSpacing: 10.w,
-        childAspectRatio: 0.72,
+    return _wrapPhone(
+      empty: false,
+      CustomScrollView(
+        controller: _scroll,
+        physics: compact ? const AlwaysScrollableScrollPhysics() : null,
+        slivers: [
+          SliverPadding(
+            padding: AppLayout.mediaHubPadding(context),
+            sliver: SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                mainAxisSpacing: 10.h,
+                crossAxisSpacing: 10.w,
+                childAspectRatio: 0.72,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  return _VideoTile(
+                    item: _videos[index],
+                    onDownload: () => _download(_videos[index]),
+                    onOpenProfile: () => _openProfile(_videos[index].post.username),
+                  );
+                },
+                childCount: _videos.length,
+              ),
+            ),
+          ),
+          if (_loadingMore)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(0, 4.h, 0, 16.h),
+                child: Center(
+                  child: SizedBox(
+                    width: 20.w,
+                    height: 20.w,
+                    child: CircularProgressIndicator(strokeWidth: 2.w),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
-      itemCount: _videos.length,
-      itemBuilder: (context, index) {
-        return _VideoTile(
-          item: _videos[index],
-          onDownload: () => _download(_videos[index]),
-          onOpenProfile: () => _openProfile(_videos[index].post.username),
-        );
-      },
     );
   }
 }
@@ -232,9 +367,7 @@ class _VideoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imageUrl = item.media.previewUrl.isNotEmpty
-        ? item.media.previewUrl
-        : item.media.url;
+    final imageUrl = item.media.listUrl;
     return Material(
       color: AppColors.surfaceAlt,
       borderRadius: BorderRadius.circular(12.w),
@@ -262,7 +395,6 @@ class _VideoTile extends StatelessWidget {
                         : AppNetworkImage(
                             url: imageUrl,
                             fit: BoxFit.cover,
-                            memCacheWidth: 480,
                             error: Center(
                               child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted, size: 32.w),
                             ),

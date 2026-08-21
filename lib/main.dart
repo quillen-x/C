@@ -16,6 +16,7 @@ import 'screens/x_following_page.dart';
 import 'screens/x_photos_page.dart';
 import 'screens/x_search_page.dart';
 import 'theme.dart';
+import 'widgets/app_layout.dart';
 import 'widgets/app_scope.dart';
 import 'widgets/home_shell.dart';
 import 'widgets/x_feed_links.dart';
@@ -27,6 +28,11 @@ Future<void> main() async {
   XFeedLinks.openMention = openXMention;
   XFeedLinks.openSearch = showPostSearch;
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.light);
+  if (!Platform.isMacOS) {
+    await SystemChrome.setPreferredOrientations(
+      <DeviceOrientation>[DeviceOrientation.portraitUp],
+    );
+  }
   if (Platform.isMacOS) {
     await windowManager.ensureInitialized();
     const windowOptions = WindowOptions(
@@ -113,6 +119,7 @@ class _RootState extends State<_Root> {
   AppPage _mediaPage = AppPage.xFeed;
   final Map<AppPage, Widget> _pages = <AppPage, Widget>{};
   final Map<AppPage, GlobalKey> _pageKeys = <AppPage, GlobalKey>{};
+  PageController? _mediaPager;
 
   @override
   void initState() {
@@ -123,9 +130,16 @@ class _RootState extends State<_Root> {
     _ensurePage(AppPage.xPhotos);
     _ensurePage(AppPage.x);
     _ensurePage(AppPage.xFollowing);
+    _mediaPager = PageController();
   }
 
-  void _select(AppPage page) {
+  @override
+  void dispose() {
+    _mediaPager?.dispose();
+    super.dispose();
+  }
+
+  void _select(AppPage page, {bool fromPager = false}) {
     setState(() {
       final media = AppScope.of(context).settings.visibleMedia;
       if (page == AppPage.xFeed && !_page.isMediaHub) {
@@ -143,10 +157,101 @@ class _RootState extends State<_Root> {
       _ensurePage(page);
       _page = page;
     });
+    if (fromPager || !page.isMediaHub) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final tabs = AppScope.of(context).settings.visibleMedia.allowedPages;
+      final index = tabs.indexOf(_page);
+      final pager = _mediaPager;
+      if (index < 0 || pager == null || !pager.hasClients) {
+        return;
+      }
+      if (pager.page?.round() != index) {
+        pager.jumpToPage(index);
+      }
+    });
   }
 
   void _ensurePage(AppPage page) {
     _pages.putIfAbsent(page, () => _createPage(page));
+  }
+
+  Widget _shellChild(CategoryMediaConfig media) {
+    final compact = AppLayout.isCompact(context);
+    final tabs = media.allowedPages;
+    final usePager = compact && tabs.length > 1;
+    if (usePager) {
+      final onMedia = _page.isMediaHub;
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Offstage(
+            offstage: !onMedia,
+            child: TickerMode(
+              enabled: onMedia,
+              child: IgnorePointer(
+                ignoring: !onMedia,
+                child: PageView(
+                  controller: _mediaPager,
+                  onPageChanged: (value) {
+                    if (!onMedia || value < 0 || value >= tabs.length) {
+                      return;
+                    }
+                    final next = tabs[value];
+                    if (next != _page) {
+                      _select(next, fromPager: true);
+                    }
+                  },
+                  children: [
+                    for (final page in tabs)
+                      _KeepAlivePage(
+                        key: ValueKey(page),
+                        child: _pages[page]!,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          for (final page in _stackOrder.where(_pages.containsKey))
+            if (!page.isMediaHub)
+              Offstage(
+                key: ValueKey(page),
+                offstage: page != _page,
+                child: TickerMode(
+                  enabled: page == _page,
+                  child: IgnorePointer(
+                    ignoring: page != _page,
+                    child: _pages[page]!,
+                  ),
+                ),
+              ),
+        ],
+      );
+    }
+    final stacked = _stackOrder.where(_pages.containsKey).toList();
+    final index = stacked.indexOf(_page);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        for (var i = 0; i < stacked.length; i++)
+          Offstage(
+            key: ValueKey(stacked[i]),
+            offstage: i != index,
+            child: TickerMode(
+              enabled: true,
+              child: IgnorePointer(
+                ignoring: i != index,
+                child: _pages[stacked[i]]!,
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   @override
@@ -167,30 +272,12 @@ class _RootState extends State<_Root> {
         _select(next);
       });
     }
-    final stacked = _stackOrder.where(_pages.containsKey).toList();
-    final index = stacked.indexOf(_page);
     return Scaffold(
       body: HomeShell(
         page: _page,
         activeCount: app.activeCount,
         onSelect: _select,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            for (var i = 0; i < stacked.length; i++)
-              Offstage(
-                key: ValueKey(stacked[i]),
-                offstage: i != index,
-                child: TickerMode(
-                  enabled: true,
-                  child: IgnorePointer(
-                    ignoring: i != index,
-                    child: _pages[stacked[i]]!,
-                  ),
-                ),
-              ),
-          ],
-        ),
+        child: _shellChild(media),
       ),
     );
   }
@@ -217,5 +304,26 @@ class _RootState extends State<_Root> {
       case AppPage.settings:
         return SettingsPage(key: key);
     }
+  }
+}
+
+class _KeepAlivePage extends StatefulWidget {
+  const _KeepAlivePage({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<_KeepAlivePage> createState() => _KeepAlivePageState();
+}
+
+class _KeepAlivePageState extends State<_KeepAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -10,15 +11,27 @@ import '../models.dart';
 
 class IoHelpers {
   static const _mediaChannel = MethodChannel('media_downloader/media');
+  static const _appFolder = 'com.xujiapeng.mediaDownloader';
+  static Directory? _supportDir;
+
+  static Future<void> init() async {
+    if (!Platform.isIOS) {
+      return;
+    }
+    final support = await getApplicationSupportDirectory();
+    _supportDir = Directory('${support.path}/$_appFolder');
+  }
 
   static String get homeDir {
+    if (_supportDir != null) {
+      return _supportDir!.parent.parent.parent.path;
+    }
     return Platform.environment['HOME'] ?? Directory.systemTemp.path;
   }
 
   static Directory get supportDir {
-    return Directory(
-      '$homeDir/Library/Application Support/com.xujiapeng.mediaDownloader',
-    );
+    return _supportDir ??
+        Directory('$homeDir/Library/Application Support/$_appFolder');
   }
 
   static File get settingsFile {

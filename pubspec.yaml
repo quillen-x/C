@@ -19,6 +19,7 @@ dependencies:
   sqlite3: ^3.5.1
   excel: ^4.0.6
   cached_network_image: ^3.4.1
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:
@@ -27,6 +28,12 @@ dev_dependencies:
 
 dependency_overrides:
   win32: ^5.5.1
+
+hooks:
+  user_defines:
+    sqlite3:
+      # 使用系统 libsqlite3，避免嵌入未签名的 sqlite3.framework。
+      source: system
 
 flutter:
   uses-material-design: true

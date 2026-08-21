@@ -10,6 +10,7 @@ import '../models.dart';
 import '../theme.dart';
 import 'app_layout.dart';
 import 'app_scope.dart';
+import 'phone_routes.dart';
 
 class _NavAssets {
   static const search = 'assets/images/search.svg';
@@ -23,21 +24,22 @@ class _NavAssets {
 class _NavSvg extends StatelessWidget {
   const _NavSvg({
     required this.asset,
-    required this.color,
+    this.color,
     this.size = 18,
   });
 
   final String asset;
-  final Color color;
+  final Color? color;
   final double size;
 
   @override
   Widget build(BuildContext context) {
+    final resolved = color ?? IconTheme.of(context).color ?? AppColors.textMuted;
     return SvgPicture.asset(
       asset,
       width: size.w,
       height: size.w,
-      colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+      colorFilter: ColorFilter.mode(resolved, BlendMode.srcIn),
     );
   }
 }
@@ -58,8 +60,44 @@ class HomeShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = AppLayout.isCompact(context);
     final media = AppScope.of(context).settings.visibleMedia;
     final showSwitcher = page.isMediaHub && media.allowedPages.length > 1;
+    if (compact) {
+      return Scaffold(
+        backgroundColor: AppColors.navBar,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              if (page.isMediaHub)
+                _PhoneMediaTopBar(
+                  page: page,
+                  allowed: media,
+                  onSelect: onSelect,
+                ),
+              Expanded(
+                child: ColoredBox(
+                  color: AppColors.bg,
+                  child: child,
+                ),
+              ),
+            ],
+          ),
+        ),
+        bottomNavigationBar: ColoredBox(
+          color: AppColors.navBar,
+          child: SafeArea(
+            top: false,
+            child: _BottomNav(
+              page: page,
+              activeCount: activeCount,
+              onSelect: onSelect,
+            ),
+          ),
+        ),
+      );
+    }
     final content = Stack(
       fit: StackFit.expand,
       children: [
@@ -84,32 +122,6 @@ class HomeShell extends StatelessWidget {
         ),
       ],
     );
-    if (AppLayout.isCompact(context)) {
-      return Column(
-        children: [
-          Expanded(
-            child: SafeArea(
-              bottom: false,
-              child: ColoredBox(
-                color: AppColors.bg,
-                child: content,
-              ),
-            ),
-          ),
-          ColoredBox(
-            color: AppColors.sidebar,
-            child: SafeArea(
-              top: false,
-              child: _BottomNav(
-                page: page,
-                activeCount: activeCount,
-                onSelect: onSelect,
-              ),
-            ),
-          ),
-        ],
-      );
-    }
     final desktopBody = Row(
       children: [
         _Sidebar(
@@ -132,7 +144,7 @@ class HomeShell extends StatelessWidget {
   }
 }
 
-class _BottomNav extends StatelessWidget {
+class _BottomNav extends StatefulWidget {
   const _BottomNav({
     required this.page,
     required this.activeCount,
@@ -143,93 +155,131 @@ class _BottomNav extends StatelessWidget {
   final int activeCount;
   final ValueChanged<AppPage> onSelect;
 
+  @override
+  State<_BottomNav> createState() => _BottomNavState();
+}
+
+class _BottomNavState extends State<_BottomNav> with SingleTickerProviderStateMixin {
+  late final TabController _controller;
+
   int get _index {
-    switch (page) {
+    switch (widget.page) {
       case AppPage.xFeed:
       case AppPage.xPhotos:
       case AppPage.x:
+      case AppPage.search:
         return 0;
       case AppPage.xFollowing:
       case AppPage.xAccounts:
-        return 1;
-      case AppPage.search:
-        return 2;
       case AppPage.categories:
-        return 3;
+        return 1;
       case AppPage.downloads:
+        return 2;
       case AppPage.settings:
-        return 4;
+        return 3;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TabController(length: 4, vsync: this, initialIndex: _index);
+  }
+
+  @override
+  void didUpdateWidget(covariant _BottomNav oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = _index;
+    if (_controller.index != next) {
+      _controller.index = next;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onTap(int index) {
+    switch (index) {
+      case 0:
+        if (!widget.page.isMediaHub) {
+          widget.onSelect(AppPage.xFeed);
+        }
+        break;
+      case 1:
+        widget.onSelect(AppPage.xFollowing);
+        break;
+      case 2:
+        widget.onSelect(AppPage.downloads);
+        break;
+      case 3:
+        widget.onSelect(AppPage.settings);
+        break;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return BottomNavigationBar(
-      type: BottomNavigationBarType.fixed,
-      currentIndex: _index,
-      backgroundColor: AppColors.sidebar,
-      selectedItemColor: AppColors.accent,
-      unselectedItemColor: AppColors.textMuted,
-      selectedFontSize: 11.sp,
-      unselectedFontSize: 11.sp,
-      onTap: (index) {
-        switch (index) {
-          case 0:
-            if (!page.isMediaHub) {
-              onSelect(AppPage.xFeed);
-            }
-            break;
-          case 1:
-            onSelect(AppPage.xFollowing);
-            break;
-          case 2:
-            onSelect(AppPage.search);
-            break;
-          case 3:
-            onSelect(AppPage.categories);
-            break;
-          case 4:
-            onSelect(AppPage.downloads);
-            break;
-        }
-      },
-      items: [
-        const BottomNavigationBarItem(
-          icon: _NavSvg(asset: _NavAssets.media, color: AppColors.textMuted, size: 22),
-          activeIcon: _NavSvg(asset: _NavAssets.media, color: AppColors.accent, size: 22),
-          label: '动态',
+    const iconSize = 22.0;
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        border: Border(
+          top: BorderSide(color: AppColors.border, width: 0.5),
         ),
-        const BottomNavigationBarItem(
-          icon: _NavSvg(asset: _NavAssets.following, color: AppColors.textMuted, size: 22),
-          activeIcon: _NavSvg(asset: _NavAssets.following, color: AppColors.accent, size: 22),
-          label: '关注',
+      ),
+      child: TabBar(
+        controller: _controller,
+        onTap: _onTap,
+        indicator: const BoxDecoration(),
+        dividerColor: Colors.transparent,
+        labelColor: AppColors.accent,
+        unselectedLabelColor: AppColors.textMuted,
+        labelStyle: TextStyle(
+          fontSize: 11.sp,
+          fontWeight: FontWeight.w700,
+          fontFamily: AppFonts.family,
         ),
-        const BottomNavigationBarItem(
-          icon: _NavSvg(asset: _NavAssets.search, color: AppColors.textMuted, size: 22),
-          activeIcon: _NavSvg(asset: _NavAssets.search, color: AppColors.accent, size: 22),
-          label: '搜索',
+        unselectedLabelStyle: TextStyle(
+          fontSize: 11.sp,
+          fontWeight: FontWeight.w500,
+          fontFamily: AppFonts.family,
         ),
-        const BottomNavigationBarItem(
-          icon: _NavSvg(asset: _NavAssets.category, color: AppColors.textMuted, size: 22),
-          activeIcon: _NavSvg(asset: _NavAssets.category, color: AppColors.accent, size: 22),
-          label: '分类',
-        ),
-        BottomNavigationBarItem(
-          icon: activeCount > 0
-              ? Badge(
-                  label: Text('$activeCount'),
-                  child: const _NavSvg(asset: _NavAssets.download, color: AppColors.textMuted, size: 22),
-                )
-              : const _NavSvg(asset: _NavAssets.download, color: AppColors.textMuted, size: 22),
-          activeIcon: activeCount > 0
-              ? Badge(
-                  label: Text('$activeCount'),
-                  child: const _NavSvg(asset: _NavAssets.download, color: AppColors.accent, size: 22),
-                )
-              : const _NavSvg(asset: _NavAssets.download, color: AppColors.accent, size: 22),
-          label: '下载',
-        ),
-      ],
+        overlayColor: WidgetStateProperty.all(Colors.transparent),
+        splashFactory: NoSplash.splashFactory,
+        tabs: [
+          const Tab(
+            height: 56,
+            iconMargin: EdgeInsets.only(bottom: 4),
+            icon: _NavSvg(asset: _NavAssets.media, size: iconSize),
+            text: '动态',
+          ),
+          const Tab(
+            height: 56,
+            iconMargin: EdgeInsets.only(bottom: 4),
+            icon: _NavSvg(asset: _NavAssets.following, size: iconSize),
+            text: '关注',
+          ),
+          Tab(
+            height: 56,
+            iconMargin: const EdgeInsets.only(bottom: 4),
+            icon: widget.activeCount > 0
+                ? Badge(
+                    label: Text('${widget.activeCount}'),
+                    child: const _NavSvg(asset: _NavAssets.download, size: iconSize),
+                  )
+                : const _NavSvg(asset: _NavAssets.download, size: iconSize),
+            text: '下载',
+          ),
+          const Tab(
+            height: 56,
+            iconMargin: EdgeInsets.only(bottom: 4),
+            icon: _NavSvg(asset: _NavAssets.setting, size: iconSize),
+            text: '设置',
+          ),
+        ],
+      ),
     );
   }
 }
@@ -308,6 +358,91 @@ class _Sidebar extends StatelessWidget {
             onTap: () => onSelect(AppPage.settings),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PhoneMediaTopBar extends StatelessWidget {
+  const _PhoneMediaTopBar({
+    required this.page,
+    required this.allowed,
+    required this.onSelect,
+  });
+
+  static const _indicator = Color(0xFFFF3B5C);
+
+  final AppPage page;
+  final CategoryMediaConfig allowed;
+  final ValueChanged<AppPage> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: AppColors.navBar,
+      child: SizedBox(
+        height: 48.h,
+        child: Row(
+          children: [
+            SizedBox(width: 48.w),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (allowed.posts)
+                    _tab(label: '动态', target: AppPage.xFeed),
+                  if (allowed.photos)
+                    _tab(label: '图片', target: AppPage.xPhotos),
+                  if (allowed.videos)
+                    _tab(label: '视频', target: AppPage.x),
+                ],
+              ),
+            ),
+            SizedBox(
+              width: 48.w,
+              height: 48.h,
+              child: const PhoneSearchButton(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _tab({
+    required String label,
+    required AppPage target,
+  }) {
+    final selected = page == target;
+    return GestureDetector(
+      onTap: selected ? null : () => onSelect(target),
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 6.h),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: selected ? 18.sp : 16.sp,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                color: selected ? AppColors.text : AppColors.textMuted,
+                height: 1.1,
+              ),
+            ),
+            SizedBox(height: 5.h),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: selected ? 18.w : 0,
+              height: 3.h,
+              decoration: BoxDecoration(
+                color: selected ? _indicator : Colors.transparent,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

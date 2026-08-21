@@ -15,6 +15,24 @@ import 'media_viewer.dart';
 import 'x_feed_links.dart';
 
 void showPostComments(BuildContext context, XPost post) {
+  if (AppLayout.isCompact(context)) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) {
+          return Scaffold(
+            backgroundColor: AppColors.navBar,
+            body: SafeArea(
+              child: ColoredBox(
+                color: AppColors.bg,
+                child: _CommentsDialog(post: post, asPage: true),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    return;
+  }
   showDialog<void>(
     context: context,
     builder: (dialogContext) {
@@ -24,9 +42,13 @@ void showPostComments(BuildContext context, XPost post) {
 }
 
 class _CommentsDialog extends StatefulWidget {
-  const _CommentsDialog({required this.post});
+  const _CommentsDialog({
+    required this.post,
+    this.asPage = false,
+  });
 
   final XPost post;
+  final bool asPage;
 
   @override
   State<_CommentsDialog> createState() => _CommentsDialogState();
@@ -137,13 +159,43 @@ class _CommentsDialogState extends State<_CommentsDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (widget.asPage)
+          PhoneNavBar(
+            onBack: () => Navigator.of(context).pop(),
+            titleWidget: GestureDetector(
+              onTap: () => XFeedLinks.openMention?.call(context, widget.post.username),
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: [
+                  XAvatar(url: widget.post.avatarUrl, size: 32),
+                  SizedBox(width: 8.w),
+                  Expanded(
+                    child: Text(
+                      widget.post.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16.sp),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        Expanded(child: _buildBody()),
+      ],
+    );
+    if (widget.asPage) {
+      return ColoredBox(color: AppColors.bg, child: body);
+    }
     final size = MediaQuery.of(context).size;
-    final compact = AppLayout.isCompact(context);
     return Dialog(
       backgroundColor: AppColors.surface,
       insetPadding: EdgeInsets.symmetric(
-        horizontal: compact ? 24.w : 80.w,
-        vertical: compact ? 12.h : 16.h,
+        horizontal: 80.w,
+        vertical: 16.h,
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.w)),
       child: ConstrainedBox(
@@ -151,12 +203,7 @@ class _CommentsDialogState extends State<_CommentsDialog> {
           maxWidth: 420.w,
           maxHeight: size.height * 0.94,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(child: _buildBody()),
-          ],
-        ),
+        child: body,
       ),
     );
   }
@@ -168,37 +215,38 @@ class _CommentsDialogState extends State<_CommentsDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              XAvatar(url: post.avatarUrl, size: 40),
-              SizedBox(width: 10.w),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      post.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15.sp),
-                    ),
-                    Text(
-                      '@${post.username}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp),
-                    ),
-                  ],
+          if (!widget.asPage)
+            Row(
+              children: [
+                XAvatar(url: post.avatarUrl, size: 40),
+                SizedBox(width: 10.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        post.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15.sp),
+                      ),
+                      Text(
+                        '@${post.username}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close, color: AppColors.textMuted),
-              ),
-            ],
-          ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close, color: AppColors.textMuted),
+                ),
+              ],
+            ),
           if (post.displayText.isNotEmpty) ...[
-            SizedBox(height: 10.h),
+            if (!widget.asPage) SizedBox(height: 10.h),
             _HoverTranslateTarget(
               post: post,
               builder: (context, view) {
@@ -413,6 +461,7 @@ class PostWaterfall extends StatelessWidget {
     this.padding,
     this.textSize,
     this.textWeight,
+    this.framed = true,
   });
 
   final int columns;
@@ -425,16 +474,74 @@ class PostWaterfall extends StatelessWidget {
   final EdgeInsets? padding;
   final double? textSize;
   final FontWeight? textWeight;
+  final bool framed;
 
   @override
   Widget build(BuildContext context) {
     final count = columns < 1 ? 1 : columns;
+    if (count == 1) {
+      return _buildList(context);
+    }
+    return _buildWaterfall(context, count);
+  }
+
+  ScrollPhysics? _physics(BuildContext context) {
+    return AppLayout.isCompact(context) ? const AlwaysScrollableScrollPhysics() : null;
+  }
+
+  Widget _footer() {
+    if (!loadingMore) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: EdgeInsets.fromLTRB(0, 4.h, 0, 12.h),
+      child: Center(
+        child: SizedBox(
+          width: 20.w,
+          height: 20.w,
+          child: CircularProgressIndicator(strokeWidth: 2.w),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildList(BuildContext context) {
+    final showFooter = loadingMore || hasMore;
+    return ListView.builder(
+      controller: controller,
+      physics: _physics(context),
+      padding: padding ?? EdgeInsets.fromLTRB(12.w, 12.h, 12.w, 8.h),
+      itemCount: posts.length + (showFooter ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index >= posts.length) {
+          return _footer();
+        }
+        final post = posts[index];
+        return Padding(
+          padding: EdgeInsets.only(bottom: 10.h),
+          child: PostCard(
+            key: ValueKey(post.id),
+            post: post,
+            showAuthor: showAuthor,
+            textSize: textSize,
+            textWeight: textWeight,
+            framed: framed,
+            onDownload: onDownload,
+            onTap: () => showPostComments(context, post),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildWaterfall(BuildContext context, int count) {
     final buckets = List<List<XPost>>.generate(count, (_) => <XPost>[]);
     for (var i = 0; i < posts.length; i++) {
       buckets[i % count].add(posts[i]);
     }
     return CustomScrollView(
       controller: controller,
+      physics: _physics(context),
       slivers: [
         SliverPadding(
           padding: padding ?? EdgeInsets.fromLTRB(12.w, 12.h, 12.w, 8.h),
@@ -457,6 +564,7 @@ class PostWaterfall extends StatelessWidget {
                               showAuthor: showAuthor,
                               textSize: textSize,
                               textWeight: textWeight,
+                              framed: framed,
                               onDownload: onDownload,
                               onTap: () => showPostComments(context, post),
                             ),
@@ -470,20 +578,7 @@ class PostWaterfall extends StatelessWidget {
           ),
         ),
         if (loadingMore || hasMore)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(0, 4.h, 0, 20.h),
-              child: Center(
-                child: loadingMore
-                    ? SizedBox(
-                        width: 20.w,
-                        height: 20.w,
-                        child: CircularProgressIndicator(strokeWidth: 2.w),
-                      )
-                    : const SizedBox.shrink(),
-              ),
-            ),
-          ),
+          SliverToBoxAdapter(child: _footer()),
       ],
     );
   }
@@ -648,6 +743,7 @@ class PostCard extends StatelessWidget {
     this.dense = false,
     this.textSize,
     this.textWeight,
+    this.framed = true,
   });
 
   final XPost post;
@@ -659,6 +755,7 @@ class PostCard extends StatelessWidget {
   final bool dense;
   final double? textSize;
   final FontWeight? textWeight;
+  final bool framed;
 
   Widget _bodyText(BuildContext context, String value, {bool muted = false, int? maxLines}) {
     final size = textSize ?? (dense ? 12.sp : 14.sp);
@@ -681,39 +778,62 @@ class PostCard extends StatelessWidget {
     return _HoverTranslateTarget(
       post: post,
       builder: (context, view) {
+        final compact = AppLayout.isCompact(context);
+        final timeStyle = TextStyle(
+          color: AppColors.textMuted,
+          fontSize: dense ? 10.sp : 11.sp,
+        );
+        final timeLabel = post.publishedAt == null
+            ? null
+            : formatPostTime(post.publishedAt!);
+        final timeOnNameRow = compact && showAuthor && timeLabel != null;
         final card = Container(
           padding: dense
               ? EdgeInsets.fromLTRB(8.w, 8.h, 8.w, 8.h)
-              : EdgeInsets.fromLTRB(14.w, 12.h, 12.w, 12.h),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceAlt,
-            borderRadius: BorderRadius.circular(12.w),
-            border: Border.all(color: AppColors.border),
-          ),
+              : compact
+                  ? EdgeInsets.fromLTRB(10.w, 10.h, 10.w, 10.h)
+                  : EdgeInsets.fromLTRB(14.w, 12.h, 12.w, 12.h),
+          decoration: framed
+              ? BoxDecoration(
+                  color: AppColors.surfaceAlt,
+                  borderRadius: BorderRadius.circular(12.w),
+                  border: Border.all(color: AppColors.border),
+                )
+              : null,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (showAuthor)
-                GestureDetector(
-                  onTap: () => XFeedLinks.openMention?.call(context, post.username),
-                  behavior: HitTestBehavior.opaque,
-                  child: Row(
-                    children: [
-                      XAvatar(url: post.avatarUrl, size: dense ? 22 : 32),
-                      SizedBox(width: dense ? 6.w : 8.w),
-                      Expanded(
-                        child: Text(
-                          post.displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: dense ? 11.sp : 13.sp,
-                          ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => XFeedLinks.openMention?.call(context, post.username),
+                        behavior: HitTestBehavior.opaque,
+                        child: Row(
+                          children: [
+                            XAvatar(url: post.avatarUrl, size: dense ? 22 : 32),
+                            SizedBox(width: dense ? 6.w : 8.w),
+                            Expanded(
+                              child: Text(
+                                post.displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: dense ? 11.sp : 13.sp,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                    ),
+                    if (timeOnNameRow) ...[
+                      SizedBox(width: 8.w),
+                      Text(timeLabel!, style: timeStyle),
                     ],
-                  ),
+                  ],
                 ),
               if (view.mainText.isNotEmpty) ...[
                 if (showAuthor) SizedBox(height: dense ? 4.h : 6.h),
@@ -754,14 +874,11 @@ class PostCard extends StatelessWidget {
                   ],
                 ),
               ],
-              if (post.publishedAt != null) ...[
+              if (timeLabel != null && !timeOnNameRow) ...[
                 SizedBox(height: dense ? 6.h : 8.h),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: Text(
-                    formatPostTime(post.publishedAt!),
-                    style: TextStyle(color: AppColors.textMuted, fontSize: dense ? 10.sp : 11.sp),
-                  ),
+                  child: Text(timeLabel, style: timeStyle),
                 ),
               ],
             ],
@@ -1149,7 +1266,7 @@ class _MediaThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imageUrl = item.previewUrl.isNotEmpty ? item.previewUrl : item.url;
+    final imageUrl = item.listUrl;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
@@ -1171,7 +1288,6 @@ class _MediaThumb extends StatelessWidget {
                 child: AppNetworkImage(
                   url: imageUrl,
                   fit: BoxFit.cover,
-                  memCacheWidth: 480,
                   error: const Center(
                     child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
                   ),

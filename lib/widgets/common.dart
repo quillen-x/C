@@ -6,6 +6,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/io_helpers.dart';
 import '../theme.dart';
+import 'app_layout.dart';
 
 class SectionCard extends StatelessWidget {
   const SectionCard({super.key, required this.child, this.padding});
@@ -16,7 +17,8 @@ class SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: padding ?? EdgeInsets.all(16.w),
+      padding: padding ??
+          EdgeInsets.all(AppLayout.isCompact(context) ? 10.w : 16.w),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16.w),
@@ -326,7 +328,9 @@ class EmptyHint extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 24.w),
+        padding: EdgeInsets.symmetric(
+          horizontal: AppLayout.isCompact(context) ? 16.w : 24.w,
+        ),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: 460.w),
           child: Column(
@@ -361,7 +365,7 @@ class AppNetworkImage extends StatelessWidget {
     this.width,
     this.height,
     this.memCacheWidth,
-    this.filterQuality = FilterQuality.low,
+    this.filterQuality = FilterQuality.medium,
     this.placeholder,
     this.error,
   });
@@ -387,13 +391,30 @@ class AppNetworkImage extends StatelessWidget {
       return error ?? placeholder ?? const SizedBox.shrink();
     }
     final fallback = placeholder ?? ColoredBox(color: AppColors.surface);
+    if (memCacheWidth != null) {
+      return _image(memCacheWidth, fallback);
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final logical = constraints.maxWidth.isFinite && constraints.maxWidth > 0
+            ? constraints.maxWidth
+            : (width ?? 0);
+        final cacheWidth = logical > 0
+            ? (logical * MediaQuery.devicePixelRatioOf(context)).round().clamp(64, 2048)
+            : null;
+        return _image(cacheWidth, fallback);
+      },
+    );
+  }
+
+  Widget _image(int? cacheWidth, Widget fallback) {
     return CachedNetworkImage(
       imageUrl: url.trim(),
       httpHeaders: headers,
       fit: fit,
       width: width,
       height: height,
-      memCacheWidth: memCacheWidth,
+      memCacheWidth: cacheWidth,
       filterQuality: filterQuality,
       fadeInDuration: const Duration(milliseconds: 80),
       fadeOutDuration: Duration.zero,
@@ -433,6 +454,60 @@ class XAvatar extends StatelessWidget {
                   child: Icon(Icons.person, size: (size * 0.57).w, color: AppColors.textMuted),
                 ),
               ),
+      ),
+    );
+  }
+}
+
+class PhoneRefreshHost extends StatelessWidget {
+  const PhoneRefreshHost({
+    super.key,
+    required this.onRefresh,
+    required this.child,
+    this.onLoadMore,
+    this.hasMore = false,
+    this.loadingMore = false,
+    this.empty = false,
+  });
+
+  final Future<void> Function() onRefresh;
+  final VoidCallback? onLoadMore;
+  final bool hasMore;
+  final bool loadingMore;
+  final bool empty;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!AppLayout.isCompact(context)) {
+      return child;
+    }
+    final body = empty
+        ? CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverFillRemaining(hasScrollBody: false, child: child),
+            ],
+          )
+        : child;
+    return RefreshIndicator(
+      color: AppColors.accent,
+      backgroundColor: AppColors.surface,
+      onRefresh: onRefresh,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (empty || onLoadMore == null || !hasMore || loadingMore) {
+            return false;
+          }
+          if (notification.metrics.maxScrollExtent <= 0) {
+            return false;
+          }
+          if (notification.metrics.extentAfter < 280) {
+            onLoadMore!();
+          }
+          return false;
+        },
+        child: body,
       ),
     );
   }
@@ -488,5 +563,83 @@ class RefreshFab extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class PhoneNavBar extends StatelessWidget {
+  const PhoneNavBar({
+    super.key,
+    this.title = '',
+    this.titleWidget,
+    this.onBack,
+    this.trailing,
+    this.centerTitle = false,
+    this.height = 48,
+  });
+
+  final String title;
+  final Widget? titleWidget;
+  final VoidCallback? onBack;
+  final Widget? trailing;
+  final bool centerTitle;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final titleText = Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: centerTitle ? TextAlign.center : TextAlign.start,
+      style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
+    );
+    final titleChild = titleWidget ?? titleText;
+    final barHeight = height.h;
+    final bar = centerTitle && titleWidget == null
+        ? SizedBox(
+            height: barHeight,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 72.w),
+                  child: titleText,
+                ),
+                Row(
+                  children: [
+                    if (onBack != null)
+                      IconButton(
+                        onPressed: onBack,
+                        icon: Icon(Icons.arrow_back_ios_new, size: 18.w, color: AppColors.text),
+                      )
+                    else
+                      SizedBox(width: 12.w),
+                    const Spacer(),
+                    if (trailing != null) trailing!,
+                  ],
+                ),
+              ],
+            ),
+          )
+        : SizedBox(
+            height: barHeight,
+            child: Row(
+              children: [
+                if (onBack != null)
+                  IconButton(
+                    onPressed: onBack,
+                    icon: Icon(Icons.arrow_back_ios_new, size: 18.w, color: AppColors.text),
+                  )
+                else
+                  SizedBox(width: 12.w),
+                Expanded(child: titleChild),
+                if (trailing != null)
+                  trailing!
+                else if (onBack != null)
+                  SizedBox(width: 48.w),
+              ],
+            ),
+          );
+    return ColoredBox(color: AppColors.navBar, child: bar);
   }
 }

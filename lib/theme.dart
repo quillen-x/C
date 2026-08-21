@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class AppColors {
   static const bg = Color(0xFF0B0D12);
+  static const navBar = Color(0xFF000000);
   static const sidebar = Color(0xFF10131A);
   static const surface = Color(0xFF171B24);
   static const surfaceAlt = Color(0xFF1E2430);

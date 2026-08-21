@@ -28,6 +28,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> init() async {
     try {
+      await IoHelpers.init();
       settings = await IoHelpers.loadSettings();
       ProxyHttpOverrides.apply(
         settings.proxyEnabled ? settings.proxyAddress : null,

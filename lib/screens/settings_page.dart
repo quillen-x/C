@@ -93,18 +93,27 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final compact = AppLayout.isCompact(context);
+    final canPop = Navigator.of(context).canPop();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        PageHeader(
-          trailing: Navigator.of(context).canPop()
-              ? IconButton(
-                  tooltip: '返回',
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: Icon(Icons.arrow_back_ios_new, size: 18.w),
-                )
-              : null,
-        ),
+        if (compact)
+          PhoneNavBar(
+            title: '设置',
+            centerTitle: true,
+            onBack: canPop ? () => Navigator.of(context).pop() : null,
+          )
+        else
+          PageHeader(
+            trailing: canPop
+                ? IconButton(
+                    tooltip: '返回',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: Icon(Icons.arrow_back_ios_new, size: 18.w),
+                  )
+                : null,
+          ),
         Expanded(
           child: ListView(
             padding: AppLayout.pagePadding(context, bottom: 28),

@@ -9,6 +9,7 @@ import '../theme.dart';
 import '../widgets/app_layout.dart';
 import '../widgets/app_scope.dart';
 import '../widgets/common.dart';
+import '../widgets/phone_routes.dart';
 import '../widgets/x_feed_widgets.dart';
 
 class XFeedPage extends StatefulWidget {
@@ -19,14 +20,39 @@ class XFeedPage extends StatefulWidget {
 }
 
 class _XFeedPageState extends State<XFeedPage> {
+  static const _maxDays = 14;
+
   final ScrollController _scroll = ScrollController();
   Map<String, XAccount> _profiles = <String, XAccount>{};
   List<XPost> _posts = <XPost>[];
   bool _loading = false;
+  bool _loadingMore = false;
   bool _started = false;
+  bool _autoLoadScheduled = false;
   bool _noSpecial = false;
+  bool _hasMore = true;
   String? _error;
   int _loadId = 0;
+  int _daysLoaded = 0;
+  DateTime _cursorDay = DateTime.now();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_autoLoadScheduled) {
+      return;
+    }
+    final app = AppScope.of(context);
+    if (!app.ready || !AppLayout.isCompact(context)) {
+      return;
+    }
+    _autoLoadScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _load();
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -34,17 +60,29 @@ class _XFeedPageState extends State<XFeedPage> {
     super.dispose();
   }
 
+  DateTime get _today {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
   Future<void> _load() async {
     if (_loading) {
       return;
     }
+    final compact = AppLayout.isCompact(context);
     final id = ++_loadId;
     setState(() {
       _started = true;
       _loading = true;
+      _loadingMore = false;
       _error = null;
       _noSpecial = false;
-      _posts = <XPost>[];
+      _hasMore = compact;
+      _daysLoaded = 0;
+      _cursorDay = _today;
+      if (!compact || _posts.isEmpty) {
+        _posts = <XPost>[];
+      }
     });
     final app = AppScope.of(context);
     final names = await app.visibleUsernames(
@@ -66,36 +104,119 @@ class _XFeedPageState extends State<XFeedPage> {
           _posts = <XPost>[];
           _error = null;
           _noSpecial = true;
+          _hasMore = false;
         });
         return;
       }
-      final posts = await app.xFollowingService.fetchTodayFeed(
+      final posts = await app.xFollowingService.fetchDayFeed(
         names,
-        onProgress: (items, done, total) {
-          if (!mounted || id != _loadId) {
-            return;
-          }
-          setState(() {
-            _posts = _withAvatars(items);
-          });
-        },
+        _cursorDay,
+        onProgress: compact
+            ? null
+            : (items, done, total) {
+                if (!mounted || id != _loadId) {
+                  return;
+                }
+                setState(() {
+                  _posts = _withAvatars(items);
+                });
+              },
       );
       if (!mounted || id != _loadId) {
         return;
       }
-      setState(() => _posts = _withAvatars(posts));
+      var loaded = posts;
+      var day = _cursorDay;
+      var days = 1;
+      while (compact && loaded.isEmpty && days < 3) {
+        day = day.subtract(const Duration(days: 1));
+        loaded = await app.xFollowingService.fetchDayFeed(names, day);
+        days += 1;
+        if (!mounted || id != _loadId) {
+          return;
+        }
+      }
+      setState(() {
+        _posts = _withAvatars(loaded);
+        _cursorDay = day;
+        _daysLoaded = days;
+        _hasMore = compact && days < _maxDays;
+      });
     } catch (error) {
       if (!mounted || id != _loadId) {
         return;
       }
       setState(() {
         _error = error.toString();
+        if (_posts.isEmpty) {
+          _hasMore = false;
+        }
       });
     } finally {
       if (mounted && id == _loadId) {
         setState(() => _loading = false);
       }
     }
+  }
+
+  Future<void> _loadMore() async {
+    if (!AppLayout.isCompact(context) ||
+        _loading ||
+        _loadingMore ||
+        !_hasMore ||
+        _daysLoaded >= _maxDays) {
+      return;
+    }
+    final id = _loadId;
+    final nextDay = _cursorDay.subtract(const Duration(days: 1));
+    setState(() => _loadingMore = true);
+    final app = AppScope.of(context);
+    try {
+      final names = await app.visibleUsernames(
+        from: app.settings.xFollowing,
+        specialOnly: true,
+        mediaPage: AppPage.xFeed,
+      );
+      if (names.isEmpty) {
+        if (mounted && id == _loadId) {
+          setState(() {
+            _hasMore = false;
+            _noSpecial = true;
+          });
+        }
+        return;
+      }
+      final posts = await app.xFollowingService.fetchDayFeed(names, nextDay);
+      if (!mounted || id != _loadId) {
+        return;
+      }
+      setState(() {
+        _cursorDay = nextDay;
+        _daysLoaded += 1;
+        _hasMore = _daysLoaded < _maxDays;
+        _mergePosts(_withAvatars(posts));
+      });
+    } catch (error) {
+      if (mounted && id == _loadId) {
+        setState(() => _error = error.toString());
+      }
+    } finally {
+      if (mounted && id == _loadId) {
+        setState(() => _loadingMore = false);
+      }
+    }
+  }
+
+  void _mergePosts(List<XPost> incoming) {
+    final seen = _posts.map((post) => post.id).toSet();
+    final extra = incoming.where((post) => seen.add(post.id));
+    final merged = <XPost>[..._posts, ...extra];
+    merged.sort((a, b) {
+      final at = a.publishedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bt = b.publishedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bt.compareTo(at);
+    });
+    _posts = merged;
   }
 
   List<XPost> _withAvatars(List<XPost> posts) {
@@ -133,66 +254,102 @@ class _XFeedPageState extends State<XFeedPage> {
   @override
   Widget build(BuildContext context) {
     final names = AppScope.of(context).settings.xFollowing;
+    final compact = AppLayout.isCompact(context);
     return Stack(
       fit: StackFit.expand,
       children: [
         _buildBody(names.isEmpty),
-        RefreshFab(onPressed: _load, busy: _loading),
+        if (!compact) RefreshFab(onPressed: _load, busy: _loading),
       ],
     );
   }
 
+  Widget _wrapPhone(Widget child, {required bool empty}) {
+    return PhoneRefreshHost(
+      onRefresh: _load,
+      onLoadMore: _loadMore,
+      hasMore: _hasMore,
+      loadingMore: _loadingMore,
+      empty: empty,
+      child: child,
+    );
+  }
+
   Widget _buildBody(bool emptyFollowing) {
+    final compact = AppLayout.isCompact(context);
     if (!_started || (_loading && _posts.isEmpty)) {
+      if (compact) {
+        return const Center(child: CircularProgressIndicator());
+      }
       return const SizedBox.expand();
     }
     if (emptyFollowing) {
-      return const EmptyHint(
-        icon: Icons.people_outline,
-        title: '还没有关注任何人',
-        detail: '打开底部「关注」，添加想看的账号。他们的帖子会出现在这里。',
+      return _wrapPhone(
+        empty: true,
+        const EmptyHint(
+          icon: Icons.people_outline,
+          title: '还没有关注任何人',
+          detail: '打开底部「关注」，添加想看的账号。他们的帖子会出现在这里。',
+        ),
       );
     }
     if (AppScope.of(context).settings.visibleCategories.isEmpty) {
-      return const EmptyHint(
-        icon: Icons.tune,
-        title: '还没有打开任何分类',
-        detail: '到「分类」打开要看的类别。',
+      return _wrapPhone(
+        empty: true,
+        EmptyHint(
+          icon: Icons.tune,
+          title: '还没有打开任何分类',
+          detail: compact
+              ? '到关注页右上角「分类」打开要看的类别。'
+              : '到「分类」打开要看的类别。',
+        ),
       );
     }
     if (_noSpecial) {
-      return const EmptyHint(
-        icon: Icons.favorite_border_rounded,
-        title: '还没有特别关注',
-        detail: '当前分类里没有特别关注的账号。到「关注」里给想看的人点特别关注，这里只会加载这些人的内容。',
+      return _wrapPhone(
+        empty: true,
+        const EmptyHint(
+          icon: Icons.favorite_border_rounded,
+          title: '还没有特别关注',
+          detail: '当前分类里没有特别关注的账号。到「关注」里给想看的人点特别关注，这里只会加载这些人的内容。',
+        ),
       );
     }
     if (_error != null && _posts.isEmpty) {
-      return EmptyHint(
-        icon: Icons.wifi_off_rounded,
-        title: '动态加载失败',
-        detail: '$_error\n请确认 VPN 已开启后再刷新。',
+      return _wrapPhone(
+        empty: true,
+        EmptyHint(
+          icon: Icons.wifi_off_rounded,
+          title: '动态加载失败',
+          detail: '$_error\n请确认 VPN 已开启后再下拉刷新。',
+        ),
       );
     }
     if (_posts.isEmpty) {
-      return EmptyHint(
-        icon: Icons.article_outlined,
-        title: _loading ? '正在加载今天的帖子' : '今天还没有新帖子',
-        detail: _loading
-            ? '正在读取特别关注的人。'
-            : '特别关注的人今天还没有发帖。',
+      return _wrapPhone(
+        empty: true,
+        EmptyHint(
+          icon: Icons.article_outlined,
+          title: _loading ? '正在加载帖子' : '暂时没有帖子',
+          detail: _loading
+              ? '正在读取特别关注的人。'
+              : '下拉刷新，或上拉看看更早的内容。',
+        ),
       );
     }
-    return PostWaterfall(
-      posts: _posts,
-      controller: _scroll,
-      columns: AppLayout.isCompact(context) ? 2 : 3,
-      showAuthor: true,
-      textSize: 14.sp,
-      loadingMore: _loading,
-      hasMore: _loading,
-      onDownload: _downloadPost,
-      padding: EdgeInsets.fromLTRB(12.w, 16.h, 12.w, AppLayout.mediaHubBarClearance.h),
+    return _wrapPhone(
+      empty: false,
+      PostWaterfall(
+        posts: _posts,
+        controller: _scroll,
+        columns: compact ? 1 : 3,
+        showAuthor: true,
+        textSize: 14.sp,
+        loadingMore: compact ? _loadingMore : _loading,
+        hasMore: compact ? _hasMore : _loading,
+        onDownload: _downloadPost,
+        padding: AppLayout.mediaHubPadding(context),
+      ),
     );
   }
 }
@@ -708,43 +865,32 @@ class _XFollowingPageState extends State<XFollowingPage> {
     _syncSelectionToVisible(names);
     final compact = AppLayout.isCompact(context);
     if (compact && _mobileDetail && _selected != null) {
+      final profile = _profiles[_selected!.toLowerCase()];
+      final title = (profile?.name.trim().isNotEmpty ?? false)
+          ? profile!.name.trim()
+          : '@$_selected';
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: AppLayout.headerPadding(context),
-            child: Row(
-              children: [
-                IconButton(
-                  onPressed: () => setState(() => _mobileDetail = false),
-                  icon: Icon(Icons.arrow_back_ios_new, size: 18.w),
-                ),
-                Expanded(
-                  child: Text(
-                    '@$_selected',
-                    style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ],
-            ),
+          PhoneNavBar(
+            title: title,
+            centerTitle: true,
+            onBack: () => setState(() => _mobileDetail = false),
           ),
           Expanded(
-            child: Padding(
-              padding: AppLayout.pagePadding(context, bottom: 16),
-              child: _DetailPane(
-                account: _profiles[_selected!.toLowerCase()],
-                username: _selected,
-                posts: _posts,
-                loading: _loadingPosts,
-                loadingMore: _loadingMorePosts,
-                hasMore: _hasMorePosts,
-                hint: _postsHint,
-                postsScroll: _postsScroll,
-                onDownload: _downloadPost,
-                onOpenFollowers: () => _openFollowers(_selected!),
-                onOpenFollowing: () => _openFollowing(_selected!),
-                onLoadMore: _loadMorePosts,
-              ),
+            child: _DetailPane(
+              account: profile,
+              username: _selected,
+              posts: _posts,
+              loading: _loadingPosts,
+              loadingMore: _loadingMorePosts,
+              hasMore: _hasMorePosts,
+              hint: _postsHint,
+              postsScroll: _postsScroll,
+              onDownload: _downloadPost,
+              onOpenFollowers: () => _openFollowers(_selected!),
+              onOpenFollowing: () => _openFollowing(_selected!),
+              onLoadMore: _loadMorePosts,
             ),
           ),
         ],
@@ -753,9 +899,22 @@ class _XFollowingPageState extends State<XFollowingPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (compact)
+          const PhoneNavBar(
+            title: '关注',
+            centerTitle: true,
+            trailing: PhoneCategoryButton(),
+          ),
         Expanded(
           child: Padding(
-            padding: AppLayout.pagePadding(context, top: 16, bottom: 16).copyWith(left: 16.w, right: 16.w),
+            padding: AppLayout.pagePadding(
+              context,
+              top: compact ? 8 : 16,
+              bottom: compact ? 8 : 16,
+            ).copyWith(
+              left: compact ? 8.w : 16.w,
+              right: compact ? 8.w : 16.w,
+            ),
             child: compact
                 ? _AccountList(
                     names: names,
@@ -888,11 +1047,153 @@ class _AccountList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SectionCard(
-      padding: EdgeInsets.fromLTRB(10.w, 12.h, 0, 10.h),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    final compact = AppLayout.isCompact(context);
+    final list = Expanded(
+      child: names.isEmpty
+          ? Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12.w),
+                child: Text(
+                  emptyHint,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 13.sp),
+                ),
+              ),
+            )
+          : ScrollbarTheme(
+              data: ScrollbarThemeData(
+                crossAxisMargin: 0,
+                mainAxisMargin: 4.h,
+                thickness: WidgetStateProperty.all(7.w),
+                radius: Radius.circular(8.w),
+              ),
+              child: ListView.builder(
+                controller: controller,
+                padding: EdgeInsets.only(right: compact ? 0 : 2.w),
+                itemCount: names.length,
+                itemBuilder: (context, index) {
+                  final username = names[index];
+                  final account = profiles[username.toLowerCase()];
+                  final displayName = (account?.name ?? '').trim().isEmpty
+                      ? username
+                      : account!.name;
+                  final isSelected = selected?.toLowerCase() == username.toLowerCase();
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: 4.h),
+                    child: Material(
+                      color: compact
+                          ? Colors.transparent
+                          : (isSelected
+                              ? AppColors.accent.withValues(alpha: 0.18)
+                              : Colors.transparent),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10.w),
+                        side: BorderSide(
+                          color: !compact && isSelected
+                              ? AppColors.accent
+                              : Colors.transparent,
+                          width: 1.4.w,
+                        ),
+                      ),
+                      child: InkWell(
+                        onTap: () => onSelect(username),
+                        borderRadius: BorderRadius.circular(10.w),
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            compact ? 8.w : 6.w,
+                            compact ? 10.h : 8.h,
+                            compact ? 6.w : 4.w,
+                            compact ? 10.h : 8.h,
+                          ),
+                          child: Row(
+                            children: [
+                              SizedBox(width: compact ? 2.w : 4.w),
+                              XAvatar(
+                                url: account?.avatarUrl ?? '',
+                                size: compact ? 40 : 28,
+                              ),
+                              SizedBox(width: compact ? 10.w : 8.w),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      displayName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: compact ? 16.sp : 13.sp,
+                                        color: compact || isSelected
+                                            ? AppColors.text
+                                            : AppColors.textMuted,
+                                      ),
+                                    ),
+                                    Text(
+                                      '@$username',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: isSelected ? AppColors.accent : AppColors.textMuted,
+                                        fontSize: compact ? 13.sp : 11.sp,
+                                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: account?.special == true
+                                    ? '取消特别关注'
+                                    : '特别关注',
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: BoxConstraints(
+                                  minWidth: compact ? 36.w : 28.w,
+                                  minHeight: compact ? 36.w : 28.w,
+                                ),
+                                onPressed: () => onToggleSpecial(username),
+                                icon: Icon(
+                                  account?.special == true
+                                      ? Icons.favorite_rounded
+                                      : Icons.favorite_border_rounded,
+                                  size: compact ? 22.w : 16.w,
+                                  color: account?.special == true
+                                      ? AppColors.danger
+                                      : (isSelected
+                                          ? AppColors.textMuted
+                                          : AppColors.border),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: '取消关注',
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: BoxConstraints(
+                                  minWidth: compact ? 36.w : 28.w,
+                                  minHeight: compact ? 36.w : 28.w,
+                                ),
+                                onPressed: () => onRemove(username),
+                                icon: Icon(
+                                  Icons.close,
+                                  size: compact ? 22.w : 16.w,
+                                  color: isSelected ? AppColors.text : AppColors.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+    );
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!compact) ...[
           Padding(
             padding: EdgeInsets.only(right: 10.w),
             child: InlineActionField(
@@ -904,136 +1205,16 @@ class _AccountList extends StatelessWidget {
             ),
           ),
           SizedBox(height: 10.h),
-          Expanded(
-            child: names.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12.w),
-                      child: Text(
-                        emptyHint,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: AppColors.textMuted, fontSize: 13.sp),
-                      ),
-                    ),
-                  )
-                : ScrollbarTheme(
-                    data: ScrollbarThemeData(
-                      crossAxisMargin: 0,
-                      mainAxisMargin: 4.h,
-                      thickness: WidgetStateProperty.all(7.w),
-                      radius: Radius.circular(8.w),
-                    ),
-                    child: ListView.builder(
-                      controller: controller,
-                      padding: EdgeInsets.only(right: 2.w),
-                      itemCount: names.length,
-                    itemBuilder: (context, index) {
-                      final username = names[index];
-                      final account = profiles[username.toLowerCase()];
-                      final displayName = (account?.name ?? '').trim().isEmpty
-                          ? username
-                          : account!.name;
-                      final isSelected = selected?.toLowerCase() == username.toLowerCase();
-                      return Padding(
-                        padding: EdgeInsets.only(bottom: 4.h),
-                        child: Material(
-                          color: isSelected
-                              ? AppColors.accent.withValues(alpha: 0.18)
-                              : Colors.transparent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10.w),
-                            side: BorderSide(
-                              color: isSelected ? AppColors.accent : Colors.transparent,
-                              width: 1.4.w,
-                            ),
-                          ),
-                          child: InkWell(
-                            onTap: () => onSelect(username),
-                            borderRadius: BorderRadius.circular(10.w),
-                            child: Padding(
-                              padding: EdgeInsets.fromLTRB(6.w, 8.h, 4.w, 8.h),
-                              child: Row(
-                                children: [
-                                  SizedBox(width: 4.w),
-                                  XAvatar(url: account?.avatarUrl ?? '', size: 28),
-                                  SizedBox(width: 8.w),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          displayName,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 13.sp,
-                                            color: isSelected ? AppColors.text : AppColors.textMuted,
-                                          ),
-                                        ),
-                                        Text(
-                                          '@$username',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: isSelected ? AppColors.accent : AppColors.textMuted,
-                                            fontSize: 11.sp,
-                                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: account?.special == true
-                                        ? '取消特别关注'
-                                        : '特别关注',
-                                    visualDensity: VisualDensity.compact,
-                                    padding: EdgeInsets.zero,
-                                    constraints: BoxConstraints(
-                                      minWidth: 28.w,
-                                      minHeight: 28.w,
-                                    ),
-                                    onPressed: () => onToggleSpecial(username),
-                                    icon: Icon(
-                                      account?.special == true
-                                          ? Icons.favorite_rounded
-                                          : Icons.favorite_border_rounded,
-                                      size: 16.w,
-                                      color: account?.special == true
-                                          ? AppColors.danger
-                                          : (isSelected
-                                              ? AppColors.textMuted
-                                              : AppColors.border),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: '取消关注',
-                                    visualDensity: VisualDensity.compact,
-                                    padding: EdgeInsets.zero,
-                                    constraints: BoxConstraints(
-                                      minWidth: 28.w,
-                                      minHeight: 28.w,
-                                    ),
-                                    onPressed: () => onRemove(username),
-                                    icon: Icon(
-                                      Icons.close,
-                                      size: 16.w,
-                                      color: isSelected ? AppColors.text : AppColors.textMuted,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  ),
-          ),
         ],
-      ),
+        list,
+      ],
+    );
+    if (compact) {
+      return body;
+    }
+    return SectionCard(
+      padding: EdgeInsets.fromLTRB(10.w, 12.h, 0, 10.h),
+      child: body,
     );
   }
 }
@@ -1070,6 +1251,13 @@ class _DetailPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (username == null) {
+      if (AppLayout.isCompact(context)) {
+        return const EmptyHint(
+          icon: Icons.people_outline,
+          title: '从这里开始',
+          detail: '在上方添加 C 用户名，或点推荐账号一键关注。之后可以查看资料，并尝试下载对方帖子中的视频。',
+        );
+      }
       return const SectionCard(
         child: EmptyHint(
           icon: Icons.people_outline,
@@ -1078,53 +1266,59 @@ class _DetailPane extends StatelessWidget {
         ),
       );
     }
+    final compact = AppLayout.isCompact(context);
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (account != null)
+          _ProfileHeader(
+            account: account!,
+            onOpenFollowers: onOpenFollowers,
+            onOpenFollowing: onOpenFollowing,
+          ),
+        if (account == null)
+          Padding(
+            padding: EdgeInsets.all(16.w),
+            child: Text('@$username', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        if (!compact) Divider(height: 1.h, color: AppColors.border),
+        Expanded(
+          child: loading
+              ? const Center(child: CircularProgressIndicator())
+              : posts.isEmpty
+                  ? EmptyHint(
+                      icon: Icons.article_outlined,
+                      title: '没有展开动态',
+                      detail: hint ?? '这个账号暂时没有可展示的帖子。',
+                    )
+                  : NotificationListener<ScrollNotification>(
+                      onNotification: (notification) {
+                        if (notification.metrics.extentAfter < 160 && hasMore && !loadingMore) {
+                          onLoadMore();
+                        }
+                        return false;
+                      },
+                      child: PostWaterfall(
+                        posts: posts,
+                        controller: postsScroll,
+                        columns: compact ? 1 : 2,
+                        loadingMore: loadingMore,
+                        hasMore: hasMore,
+                        onDownload: onDownload,
+                        framed: !compact,
+                        textSize: 13.sp,
+                        textWeight: FontWeight.w300,
+                      ),
+                    ),
+        ),
+      ],
+    );
+    if (compact) {
+      return body;
+    }
     return SectionCard(
       padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (account != null)
-            _ProfileHeader(
-              account: account!,
-              onOpenFollowers: onOpenFollowers,
-              onOpenFollowing: onOpenFollowing,
-            ),
-          if (account == null)
-            Padding(
-              padding: EdgeInsets.all(16.w),
-              child: Text('@$username', style: TextStyle(fontWeight: FontWeight.w700)),
-            ),
-          Divider(height: 1.h, color: AppColors.border),
-          Expanded(
-            child: loading
-                ? const Center(child: CircularProgressIndicator())
-                : posts.isEmpty
-                    ? EmptyHint(
-                        icon: Icons.article_outlined,
-                        title: '没有展开动态',
-                        detail: hint ?? '这个账号暂时没有可展示的帖子。',
-                      )
-                    : NotificationListener<ScrollNotification>(
-                        onNotification: (notification) {
-                          if (notification.metrics.extentAfter < 160 && hasMore && !loadingMore) {
-                            onLoadMore();
-                          }
-                          return false;
-                        },
-                        child: PostWaterfall(
-                          posts: posts,
-                          controller: postsScroll,
-                          columns: 2,
-                          loadingMore: loadingMore,
-                          hasMore: hasMore,
-                          onDownload: onDownload,
-                          textSize: 13.sp,
-                          textWeight: FontWeight.w300,
-                        ),
-                      ),
-          ),
-        ],
-      ),
+      child: body,
     );
   }
 }
@@ -1138,17 +1332,40 @@ void _showAccountList({
   List<XAccount>? accounts,
   Future<List<XAccount>> Function()? loader,
 }) {
+  Widget buildList({required bool asPage}) {
+    return _FollowingListDialog(
+      title: title,
+      accounts: accounts,
+      loader: loader,
+      followed: followed,
+      onFollow: onFollow,
+      onFollowAll: onFollowAll,
+      asPage: asPage,
+    );
+  }
+
+  if (AppLayout.isCompact(context)) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) {
+          return Scaffold(
+            backgroundColor: AppColors.navBar,
+            body: SafeArea(
+              child: ColoredBox(
+                color: AppColors.bg,
+                child: buildList(asPage: true),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    return;
+  }
   showDialog<void>(
     context: context,
     builder: (dialogContext) {
-      return _FollowingListDialog(
-        title: title,
-        accounts: accounts,
-        loader: loader,
-        followed: followed,
-        onFollow: onFollow,
-        onFollowAll: onFollowAll,
-      );
+      return buildList(asPage: false);
     },
   );
 }
@@ -1161,6 +1378,7 @@ class _FollowingListDialog extends StatefulWidget {
     required this.onFollowAll,
     this.accounts,
     this.loader,
+    this.asPage = false,
   });
 
   final String title;
@@ -1169,6 +1387,7 @@ class _FollowingListDialog extends StatefulWidget {
   final List<String> followed;
   final ValueChanged<XAccount> onFollow;
   final ValueChanged<List<XAccount>> onFollowAll;
+  final bool asPage;
 
   @override
   State<_FollowingListDialog> createState() => _FollowingListDialogState();
@@ -1254,17 +1473,148 @@ class _FollowingListDialogState extends State<_FollowingListDialog> {
     });
   }
 
+  Widget _accountRow(int index) {
+    final account = _accounts[index];
+    final already = _isFollowed(account.username);
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: widget.asPage ? 10.h : 8.h),
+      child: Row(
+        children: [
+          if (!widget.asPage)
+            SizedBox(
+              width: 28.w,
+              child: Text(
+                '${index + 1}',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          XAvatar(url: account.avatarUrl, size: 36),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  account.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.sp),
+                ),
+                Text(
+                  '@${account.username}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp),
+                ),
+              ],
+            ),
+          ),
+          already
+              ? Text(
+                  '已关注',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp),
+                )
+              : TextButton(
+                  onPressed: () => _follow(account),
+                  child: Text(
+                    '关注',
+                    style: TextStyle(
+                      color: AppColors.accent,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14.sp,
+                    ),
+                  ),
+                ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final compact = AppLayout.isCompact(context);
     final canFollowAll = !_loading &&
         _accounts.any((account) => !_isFollowed(account.username));
+    final title = widget.title;
+    final followAll = TextButton(
+      onPressed: canFollowAll ? _followAll : null,
+      child: Text(
+        '全部关注',
+        style: TextStyle(
+          color: canFollowAll ? AppColors.accent : AppColors.textMuted,
+          fontWeight: FontWeight.w700,
+          fontSize: 14.sp,
+        ),
+      ),
+    );
+    final list = Expanded(
+      child: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? EmptyHint(
+                  icon: Icons.people_outline,
+                  title: widget.title,
+                  detail: _error!,
+                )
+              : widget.asPage
+                  ? ListView.builder(
+                      padding: EdgeInsets.fromLTRB(12.w, 8.h, 12.w, 16.h),
+                      itemCount: _accounts.length,
+                      itemBuilder: (context, index) => _accountRow(index),
+                    )
+                  : ListView.separated(
+                      padding: EdgeInsets.fromLTRB(12.w, 8.h, 12.w, 16.h),
+                      itemCount: _accounts.length,
+                      separatorBuilder: (_, __) => Divider(height: 1.h, color: AppColors.border),
+                      itemBuilder: (context, index) => _accountRow(index),
+                    ),
+    );
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (widget.asPage)
+          PhoneNavBar(
+            title: title,
+            centerTitle: true,
+            onBack: () => Navigator.of(context).pop(),
+            trailing: followAll,
+          )
+        else
+          Padding(
+            padding: EdgeInsets.fromLTRB(20.w, 14.h, 8.w, 8.h),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                followAll,
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: Icon(Icons.close, color: AppColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+        if (!widget.asPage) Divider(height: 1.h, color: AppColors.border),
+        list,
+      ],
+    );
+    if (widget.asPage) {
+      return ColoredBox(color: AppColors.bg, child: body);
+    }
     return Dialog(
       backgroundColor: AppColors.surface,
       insetPadding: EdgeInsets.symmetric(
-        horizontal: compact ? 20.w : 48.w,
-        vertical: compact ? 24.h : 40.h,
+        horizontal: 48.w,
+        vertical: 40.h,
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.w)),
       child: ConstrainedBox(
@@ -1272,124 +1622,7 @@ class _FollowingListDialogState extends State<_FollowingListDialog> {
           maxWidth: 480.w,
           maxHeight: size.height * 0.72,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(20.w, 14.h, 8.w, 8.h),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _loading
-                          ? widget.title
-                          : '${widget.title} ${formatCount(_accounts.length)} 人',
-                      style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: canFollowAll ? _followAll : null,
-                    child: Text(
-                      '全部关注',
-                      style: TextStyle(
-                        color: canFollowAll ? AppColors.accent : AppColors.textMuted,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14.sp,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: Icon(Icons.close, color: AppColors.textMuted),
-                  ),
-                ],
-              ),
-            ),
-            Divider(height: 1.h, color: AppColors.border),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                      ? EmptyHint(
-                          icon: Icons.people_outline,
-                          title: widget.title,
-                          detail: _error!,
-                        )
-                      : ListView.separated(
-                          padding: EdgeInsets.fromLTRB(12.w, 8.h, 12.w, 16.h),
-                          itemCount: _accounts.length,
-                          separatorBuilder: (_, __) => Divider(height: 1.h, color: AppColors.border),
-                          itemBuilder: (context, index) {
-                            final account = _accounts[index];
-                            final already = _isFollowed(account.username);
-                            return Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8.h),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 28.w,
-                                    child: Text(
-                                      '${index + 1}',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: AppColors.textMuted,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13.sp,
-                                      ),
-                                    ),
-                                  ),
-                                  SizedBox(width: 6.w),
-                                  XAvatar(url: account.avatarUrl, size: 36),
-                                  SizedBox(width: 10.w),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          account.name,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 14.sp,
-                                          ),
-                                        ),
-                                        Text(
-                                          '@${account.username}',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: AppColors.textMuted,
-                                            fontSize: 12.sp,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  already
-                                      ? Text(
-                                          '已关注',
-                                          style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp),
-                                        )
-                                      : TextButton(
-                                          onPressed: () => _follow(account),
-                                          child: Text(
-                                            '关注',
-                                            style: TextStyle(
-                                              color: AppColors.accent,
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 14.sp,
-                                            ),
-                                          ),
-                                        ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-            ),
-          ],
-        ),
+        child: body,
       ),
     );
   }
@@ -1538,6 +1771,24 @@ class _ProfileHeader extends StatelessWidget {
 }
 
 Future<bool> showAccountHome(BuildContext context, XAccount account) async {
+  if (AppLayout.isCompact(context)) {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) {
+          return Scaffold(
+            backgroundColor: AppColors.navBar,
+            body: SafeArea(
+              child: ColoredBox(
+                color: AppColors.bg,
+                child: _AccountHomeDialog(account: account, asPage: true),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    return result == true;
+  }
   final result = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
@@ -1569,9 +1820,13 @@ Future<void> openXMention(BuildContext context, String raw) async {
 }
 
 class _AccountHomeDialog extends StatefulWidget {
-  const _AccountHomeDialog({required this.account});
+  const _AccountHomeDialog({
+    required this.account,
+    this.asPage = false,
+  });
 
   final XAccount account;
+  final bool asPage;
 
   @override
   State<_AccountHomeDialog> createState() => _AccountHomeDialogState();
@@ -1999,7 +2254,99 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final compact = AppLayout.isCompact(context);
+    final asPage = widget.asPage;
+    final title = _account.name.trim().isNotEmpty
+        ? _account.name.trim()
+        : '@${_account.username}';
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (asPage)
+          PhoneNavBar(
+            title: title,
+            centerTitle: true,
+            onBack: () => Navigator.of(context).pop(_unfollowed),
+          )
+        else
+          Padding(
+            padding: EdgeInsets.fromLTRB(8.w, 6.h, 8.w, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Tooltip(
+                    message: '点击复制用户名',
+                    child: InkWell(
+                      onTap: () async {
+                        await copyText(widget.account.username);
+                        if (!context.mounted) {
+                          return;
+                        }
+                        showAppSnack(context, '已复制 @${widget.account.username}');
+                      },
+                      child: Text(
+                        '@${widget.account.username}',
+                        style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(_unfollowed),
+                  icon: Icon(Icons.close, color: AppColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+        _ProfileHeader(
+          account: _account,
+          onOpenFollowers: () => _openFollowers(),
+          onOpenFollowing: () => _openFollowing(),
+        ),
+        _followBar(),
+        if (!asPage) Divider(height: 1.h, color: AppColors.border),
+        Expanded(
+          child: _loadingPosts
+              ? const Center(child: CircularProgressIndicator())
+              : _posts.isEmpty
+                  ? EmptyHint(
+                      icon: Icons.article_outlined,
+                      title: '没有展开动态',
+                      detail: _hint ?? '这个账号暂时没有可展示的帖子。',
+                    )
+                  : ListView.separated(
+                      controller: _postsScroll,
+                      padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 20.h),
+                      itemCount: _posts.length + (_loadingMore || _hasMore ? 1 : 0),
+                      separatorBuilder: (_, __) => SizedBox(height: asPage ? 4.h : 10.h),
+                      itemBuilder: (context, index) {
+                        if (index >= _posts.length) {
+                          return Padding(
+                            padding: EdgeInsets.symmetric(vertical: 12.h),
+                            child: Center(
+                              child: _loadingMore
+                                  ? SizedBox(
+                                      width: 20.w,
+                                      height: 20.w,
+                                      child: CircularProgressIndicator(strokeWidth: 2.w),
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
+                          );
+                        }
+                        return PostCard(
+                          key: ValueKey(_posts[index].id),
+                          post: _posts[index],
+                          onDownload: _downloadPost,
+                          onTap: () => showPostComments(context, _posts[index]),
+                          framed: !asPage,
+                          textSize: 16.sp,
+                          textWeight: FontWeight.w300,
+                        );
+                      },
+                    ),
+        ),
+      ],
+    );
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -2008,101 +2355,23 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
         }
         Navigator.of(context).pop(_unfollowed);
       },
-      child: Dialog(
-        backgroundColor: AppColors.surface,
-        insetPadding: EdgeInsets.symmetric(
-          horizontal: compact ? 24.w : 80.w,
-          vertical: compact ? 12.h : 16.h,
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.w)),
-        child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 420.w,
-          maxHeight: size.height * 0.94,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(8.w, 6.h, 8.w, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Tooltip(
-                      message: '点击复制用户名',
-                      child: InkWell(
-                        onTap: () async {
-                          await copyText(widget.account.username);
-                          if (!context.mounted) {
-                            return;
-                          }
-                          showAppSnack(context, '已复制 @${widget.account.username}');
-                        },
-                        child: Text(
-                          '@${widget.account.username}',
-                          style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(_unfollowed),
-                    icon: Icon(Icons.close, color: AppColors.textMuted),
-                  ),
-                ],
+      child: asPage
+          ? ColoredBox(color: AppColors.bg, child: body)
+          : Dialog(
+              backgroundColor: AppColors.surface,
+              insetPadding: EdgeInsets.symmetric(
+                horizontal: 80.w,
+                vertical: 16.h,
+              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.w)),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 420.w,
+                  maxHeight: size.height * 0.94,
+                ),
+                child: body,
               ),
             ),
-            _ProfileHeader(
-              account: _account,
-              onOpenFollowers: () => _openFollowers(),
-              onOpenFollowing: () => _openFollowing(),
-            ),
-            _followBar(),
-            Divider(height: 1.h, color: AppColors.border),
-            Expanded(
-              child: _loadingPosts
-                  ? const Center(child: CircularProgressIndicator())
-                  : _posts.isEmpty
-                      ? EmptyHint(
-                          icon: Icons.article_outlined,
-                          title: '没有展开动态',
-                          detail: _hint ?? '这个账号暂时没有可展示的帖子。',
-                        )
-                      : ListView.separated(
-                          controller: _postsScroll,
-                          padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 20.h),
-                          itemCount: _posts.length + (_loadingMore || _hasMore ? 1 : 0),
-                          separatorBuilder: (_, __) => SizedBox(height: 10.h),
-                          itemBuilder: (context, index) {
-                            if (index >= _posts.length) {
-                              return Padding(
-                                padding: EdgeInsets.symmetric(vertical: 12.h),
-                                child: Center(
-                                  child: _loadingMore
-                                      ? SizedBox(
-                                          width: 20.w,
-                                          height: 20.w,
-                                          child: CircularProgressIndicator(strokeWidth: 2.w),
-                                        )
-                                      : const SizedBox.shrink(),
-                                ),
-                              );
-                            }
-                            return PostCard(
-                              key: ValueKey(_posts[index].id),
-                              post: _posts[index],
-                              onDownload: _downloadPost,
-                              onTap: () => showPostComments(context, _posts[index]),
-                              textSize: 16.sp,
-                              textWeight: FontWeight.w300,
-                            );
-                          },
-                        ),
-            ),
-          ],
-        ),
-      ),
-      ),
     );
   }
 

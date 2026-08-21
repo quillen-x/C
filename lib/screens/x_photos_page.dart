@@ -19,10 +19,33 @@ class XPhotosPage extends StatefulWidget {
 class _XPhotosPageState extends State<XPhotosPage> {
   final ScrollController _scroll = ScrollController();
   List<_FollowedPhoto> _photos = <_FollowedPhoto>[];
+  Map<String, String> _cursors = <String, String>{};
   bool _loading = false;
+  bool _loadingMore = false;
   bool _started = false;
+  bool _autoLoadScheduled = false;
   bool _noSpecial = false;
   String? _error;
+
+  bool get _hasMore => _cursors.isNotEmpty;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_autoLoadScheduled) {
+      return;
+    }
+    final app = AppScope.of(context);
+    if (!app.ready || !AppLayout.isCompact(context)) {
+      return;
+    }
+    _autoLoadScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _load();
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -34,11 +57,17 @@ class _XPhotosPageState extends State<XPhotosPage> {
     if (_loading) {
       return;
     }
+    final compact = AppLayout.isCompact(context);
     setState(() {
       _started = true;
       _loading = true;
+      _loadingMore = false;
       _error = null;
       _noSpecial = false;
+      if (!compact || _photos.isEmpty) {
+        _photos = <_FollowedPhoto>[];
+        _cursors = <String, String>{};
+      }
     });
     final app = AppScope.of(context);
     final names = await app.visibleUsernames(
@@ -53,27 +82,70 @@ class _XPhotosPageState extends State<XPhotosPage> {
         }
         setState(() {
           _photos = <_FollowedPhoto>[];
+          _cursors = <String, String>{};
           _error = null;
           _noSpecial = true;
         });
         return;
       }
-      final posts = await app.xFollowingService.fetchPhotoFeed(names);
+      final batch = await app.xFollowingService.fetchPhotoFeed(names);
       if (!mounted) {
         return;
       }
-      setState(() => _photos = _flatten(posts));
+      setState(() {
+        _photos = _flatten(batch.posts);
+        _cursors = compact ? batch.cursors : <String, String>{};
+      });
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() {
-        _photos = <_FollowedPhoto>[];
         _error = error.toString();
+        if (_photos.isEmpty) {
+          _cursors = <String, String>{};
+        }
       });
     } finally {
       if (mounted) {
         setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (!AppLayout.isCompact(context) || _loading || _loadingMore || !_hasMore) {
+      return;
+    }
+    setState(() => _loadingMore = true);
+    final app = AppScope.of(context);
+    try {
+      final names = await app.visibleUsernames(
+        from: app.settings.xFollowing,
+        specialOnly: true,
+        mediaPage: AppPage.xPhotos,
+      );
+      final batch = await app.xFollowingService.fetchPhotoFeed(
+        names,
+        cursors: _cursors,
+      );
+      if (!mounted) {
+        return;
+      }
+      final seen = _photos.map((item) => '${item.post.id}:${item.index}').toSet();
+      final extra = _flatten(batch.posts)
+          .where((item) => seen.add('${item.post.id}:${item.index}'));
+      setState(() {
+        _photos = <_FollowedPhoto>[..._photos, ...extra];
+        _cursors = batch.cursors;
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = error.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingMore = false);
       }
     }
   }
@@ -131,59 +203,96 @@ class _XPhotosPageState extends State<XPhotosPage> {
   @override
   Widget build(BuildContext context) {
     final names = AppScope.of(context).settings.xFollowing;
+    final compact = AppLayout.isCompact(context);
     return Stack(
       fit: StackFit.expand,
       children: [
         _buildBody(names.isEmpty),
-        RefreshFab(onPressed: _load, busy: _loading),
+        if (!compact) RefreshFab(onPressed: _load, busy: _loading),
       ],
     );
   }
 
+  Widget _wrapPhone(Widget child, {required bool empty}) {
+    return PhoneRefreshHost(
+      onRefresh: _load,
+      onLoadMore: _loadMore,
+      hasMore: _hasMore,
+      loadingMore: _loadingMore,
+      empty: empty,
+      child: child,
+    );
+  }
+
   Widget _buildBody(bool emptyFollowing) {
+    final compact = AppLayout.isCompact(context);
     if (!_started || (_loading && _photos.isEmpty)) {
+      if (compact) {
+        return const Center(child: CircularProgressIndicator());
+      }
       return const SizedBox.expand();
     }
     if (emptyFollowing) {
-      return const EmptyHint(
-        icon: Icons.people_outline,
-        title: '还没有关注任何人',
-        detail: '打开「关注」添加账号后，他们发布的图片会出现在这里。',
+      return _wrapPhone(
+        empty: true,
+        const EmptyHint(
+          icon: Icons.people_outline,
+          title: '还没有关注任何人',
+          detail: '打开「关注」添加账号后，他们发布的图片会出现在这里。',
+        ),
       );
     }
     if (AppScope.of(context).settings.visibleCategories.isEmpty) {
-      return const EmptyHint(
-        icon: Icons.tune,
-        title: '还没有打开任何分类',
-        detail: '到「分类」打开要看的类别。',
+      return _wrapPhone(
+        empty: true,
+        EmptyHint(
+          icon: Icons.tune,
+          title: '还没有打开任何分类',
+          detail: compact
+              ? '到关注页右上角「分类」打开要看的类别。'
+              : '到「分类」打开要看的类别。',
+        ),
       );
     }
     if (_noSpecial) {
-      return const EmptyHint(
-        icon: Icons.favorite_border_rounded,
-        title: '还没有特别关注',
-        detail: '当前分类里没有特别关注的账号。到「关注」里给想看的人点特别关注，这里只会加载这些人的图片。',
+      return _wrapPhone(
+        empty: true,
+        const EmptyHint(
+          icon: Icons.favorite_border_rounded,
+          title: '还没有特别关注',
+          detail: '当前分类里没有特别关注的账号。到「关注」里给想看的人点特别关注，这里只会加载这些人的图片。',
+        ),
       );
     }
     if (_error != null && _photos.isEmpty) {
-      return EmptyHint(
-        icon: Icons.wifi_off_rounded,
-        title: '图片加载失败',
-        detail: '$_error\n请确认 VPN 已开启后再刷新。',
+      return _wrapPhone(
+        empty: true,
+        EmptyHint(
+          icon: Icons.wifi_off_rounded,
+          title: '图片加载失败',
+          detail: '$_error\n请确认 VPN 已开启后再下拉刷新。',
+        ),
       );
     }
     if (_photos.isEmpty) {
-      return const EmptyHint(
-        icon: Icons.photo_outlined,
-        title: '暂时没有图片',
-        detail: '特别关注的人最近没有发图片。过一会儿再刷新，或到「关注」里再特别关注几个账号。',
+      return _wrapPhone(
+        empty: true,
+        const EmptyHint(
+          icon: Icons.photo_outlined,
+          title: '暂时没有图片',
+          detail: '特别关注的人最近没有发图片。下拉刷新，或到「关注」里再特别关注几个账号。',
+        ),
       );
     }
-    return _PhotoWaterfall(
-      photos: _photos,
-      controller: _scroll,
-      columns: _columns(context),
-      onOpenProfile: _openProfile,
+    return _wrapPhone(
+      empty: false,
+      _PhotoWaterfall(
+        photos: _photos,
+        controller: _scroll,
+        columns: _columns(context),
+        loadingMore: _loadingMore,
+        onOpenProfile: _openProfile,
+      ),
     );
   }
 }
@@ -194,12 +303,14 @@ class _PhotoWaterfall extends StatelessWidget {
     required this.controller,
     required this.columns,
     required this.onOpenProfile,
+    this.loadingMore = false,
   });
 
   final List<_FollowedPhoto> photos;
   final ScrollController controller;
   final int columns;
   final ValueChanged<String> onOpenProfile;
+  final bool loadingMore;
 
   @override
   Widget build(BuildContext context) {
@@ -218,9 +329,10 @@ class _PhotoWaterfall extends StatelessWidget {
     }
     return CustomScrollView(
       controller: controller,
+      physics: AppLayout.isCompact(context) ? const AlwaysScrollableScrollPhysics() : null,
       slivers: [
         SliverPadding(
-          padding: EdgeInsets.fromLTRB(12.w, 16.h, 12.w, AppLayout.mediaHubBarClearance.h),
+          padding: AppLayout.mediaHubPadding(context),
           sliver: SliverToBoxAdapter(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,6 +358,19 @@ class _PhotoWaterfall extends StatelessWidget {
             ),
           ),
         ),
+        if (loadingMore)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(0, 4.h, 0, 16.h),
+              child: Center(
+                child: SizedBox(
+                  width: 20.w,
+                  height: 20.w,
+                  child: CircularProgressIndicator(strokeWidth: 2.w),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -288,9 +413,7 @@ class _PhotoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imageUrl = item.media.previewUrl.isNotEmpty
-        ? item.media.previewUrl
-        : item.media.url;
+    final imageUrl = item.media.listUrl;
     final extra = item.post.photoCount > 1 ? item.post.photoCount : 0;
     return Material(
       color: AppColors.surfaceAlt,
@@ -317,7 +440,6 @@ class _PhotoTile extends StatelessWidget {
                       : AppNetworkImage(
                           url: imageUrl,
                           fit: BoxFit.cover,
-                          memCacheWidth: 480,
                           error: Center(
                             child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted, size: 32.w),
                           ),

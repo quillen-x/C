@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 import '../models.dart';
 import '../services/io_helpers.dart';
 import '../theme.dart';
+import 'app_layout.dart';
 import 'app_scope.dart';
 import 'common.dart';
 import 'x_feed_links.dart';
@@ -30,7 +31,9 @@ void showPostMedia(
       PageRouteBuilder<void>(
         opaque: false,
         barrierDismissible: true,
-        barrierColor: const Color(0xF2000000),
+        barrierColor: AppLayout.isCompact(context)
+            ? Colors.transparent
+            : const Color(0xF2000000),
         pageBuilder: (_, __, ___) => _VideoViewerPage(
           media: item,
           username: username,
@@ -50,7 +53,9 @@ void showPostMedia(
     PageRouteBuilder<void>(
       opaque: false,
       barrierDismissible: true,
-      barrierColor: const Color(0xF2000000),
+      barrierColor: AppLayout.isCompact(context)
+          ? Colors.transparent
+          : const Color(0xF2000000),
       pageBuilder: (_, __, ___) => _PhotoViewerPage(
         photos: photos.isEmpty ? <XMedia>[item] : photos,
         initialIndex: start,
@@ -78,11 +83,22 @@ class _PhotoViewerPage extends StatefulWidget {
   State<_PhotoViewerPage> createState() => _PhotoViewerPageState();
 }
 
-class _PhotoViewerPageState extends State<_PhotoViewerPage> {
+class _PhotoViewerPageState extends State<_PhotoViewerPage>
+    with SingleTickerProviderStateMixin {
   late final PageController _controller;
   late final TransformationController _transform;
   late int _index;
+  final ValueNotifier<double> _dragY = ValueNotifier<double>(0);
+  AnimationController? _backAnim;
   bool _downloading = false;
+  bool _lockPager = false;
+  bool _draggingDown = false;
+  int _pointers = 0;
+  int? _pointer;
+  Offset _origin = Offset.zero;
+  double _lastY = 0;
+  Duration _lastTime = Duration.zero;
+  double _velocity = 0;
 
   @override
   void initState() {
@@ -94,6 +110,8 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
 
   @override
   void dispose() {
+    _backAnim?.dispose();
+    _dragY.dispose();
     _controller.dispose();
     _transform.dispose();
     super.dispose();
@@ -105,7 +123,169 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
 
   XMedia get _current => widget.photos[_index];
 
-  Future<void> _downloadCurrent() async {
+  void _onPointerDown(PointerDownEvent event) {
+    _pointers += 1;
+    if (_zoomed || _pointers > 1) {
+      _cancelDrag();
+      return;
+    }
+    _pointer = event.pointer;
+    _origin = event.position;
+    _lastY = event.position.dy;
+    _lastTime = event.timeStamp;
+    _velocity = 0;
+    _draggingDown = false;
+    _backAnim?.stop();
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (_zoomed || _pointers > 1 || event.pointer != _pointer) {
+      return;
+    }
+    final delta = event.position - _origin;
+    if (!_draggingDown) {
+      if (delta.distance < 12) {
+        return;
+      }
+      if (delta.dy > 8 && delta.dy > delta.dx.abs() * 1.2) {
+        _draggingDown = true;
+        if (!_lockPager) {
+          setState(() => _lockPager = true);
+        }
+      } else {
+        _pointer = null;
+        return;
+      }
+    }
+    final dt = (event.timeStamp - _lastTime).inMicroseconds / 1000000;
+    if (dt > 0) {
+      _velocity = (event.position.dy - _lastY) / dt;
+    }
+    _lastY = event.position.dy;
+    _lastTime = event.timeStamp;
+    _dragY.value = delta.dy < 0 ? 0 : delta.dy;
+  }
+
+  void _onPointerUp(PointerEvent event) {
+    if (_pointers > 0) {
+      _pointers -= 1;
+    }
+    if (event.pointer != _pointer) {
+      return;
+    }
+    _pointer = null;
+    if (!_draggingDown) {
+      _unlockPager();
+      return;
+    }
+    _draggingDown = false;
+    final y = _dragY.value;
+    if (y > 110 || _velocity > 900) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _unlockPager();
+    _snapBack();
+  }
+
+  void _cancelDrag() {
+    _pointer = null;
+    if (_draggingDown) {
+      _draggingDown = false;
+      _unlockPager();
+      _snapBack();
+    }
+  }
+
+  void _unlockPager() {
+    if (_lockPager && mounted) {
+      setState(() => _lockPager = false);
+    }
+  }
+
+  void _snapBack() {
+    final start = _dragY.value;
+    if (start <= 0) {
+      _dragY.value = 0;
+      return;
+    }
+    _backAnim?.dispose();
+    final controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    );
+    _backAnim = controller;
+    final anim = CurvedAnimation(parent: controller, curve: Curves.easeOutCubic);
+    anim.addListener(() {
+      _dragY.value = start * (1 - anim.value);
+    });
+    controller.forward().whenComplete(() {
+      if (_backAnim == controller) {
+        _backAnim = null;
+      }
+      controller.dispose();
+      _dragY.value = 0;
+    });
+  }
+
+  Future<void> _showSaveSheet() async {
+    if (_downloading) {
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    final action = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.w)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(8.w, 6.h, 8.w, 8.h),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36.w,
+                  height: 4.h,
+                  margin: EdgeInsets.only(bottom: 8.h),
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                ListTile(
+                  leading: Icon(Icons.photo_outlined, color: AppColors.text),
+                  title: Text(
+                    '保存到相册',
+                    style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () => Navigator.pop(sheetContext, true),
+                ),
+                ListTile(
+                  title: Text(
+                    '取消',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16.sp,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(sheetContext, false),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (action == true && mounted) {
+      await _downloadCurrent(toAlbum: true);
+    }
+  }
+
+  Future<void> _downloadCurrent({bool toAlbum = false}) async {
     if (_downloading) {
       return;
     }
@@ -139,8 +319,9 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
         dir.path,
         displayName: displayName.isEmpty ? username : displayName,
       );
+      var savedAlbum = false;
       if (Platform.isIOS) {
-        await IoHelpers.saveToPhotos(path);
+        savedAlbum = await IoHelpers.saveToPhotos(path);
       }
       await app.recordDownloadedFile(
         title: displayName.isNotEmpty
@@ -150,6 +331,14 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
         sourceUrl: url,
       );
       if (!mounted) {
+        return;
+      }
+      if (toAlbum) {
+        if (savedAlbum) {
+          showAppSnack(context, '已保存到相册');
+        } else {
+          showAppSnack(context, '保存到相册失败，请检查相册权限', error: true);
+        }
         return;
       }
       showDownloadDoneSnack(context, path);
@@ -256,8 +445,64 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final canPrev = widget.photos.length > 1 && _index > 0;
-    final canNext = widget.photos.length > 1 && _index < widget.photos.length - 1;
+    final compact = AppLayout.isCompact(context);
+    final canPrev = !compact && widget.photos.length > 1 && _index > 0;
+    final canNext = !compact && widget.photos.length > 1 && _index < widget.photos.length - 1;
+    final photos = PageView.builder(
+      controller: _controller,
+      physics: (_zoomed || _lockPager)
+          ? const NeverScrollableScrollPhysics()
+          : const PageScrollPhysics(),
+      itemCount: widget.photos.length,
+      onPageChanged: (value) {
+        _transform.value = Matrix4.identity();
+        setState(() => _index = value);
+      },
+      itemBuilder: (context, index) {
+        final photo = widget.photos[index];
+        return RepaintBoundary(
+          child: InteractiveViewer(
+            transformationController: index == _index ? _transform : null,
+            minScale: 1,
+            maxScale: 5,
+            panEnabled: _zoomed,
+            onInteractionEnd: (_) => setState(() {}),
+            child: GestureDetector(
+              onLongPress: compact ? _showSaveSheet : null,
+              child: Center(
+                child: _HiResPhoto(photo: photo),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    final stage = compact
+        ? Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: _onPointerDown,
+            onPointerMove: _onPointerMove,
+            onPointerUp: _onPointerUp,
+            onPointerCancel: _onPointerUp,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _dragY,
+              builder: (context, y, child) {
+                final t = (y / 280).clamp(0.0, 1.0);
+                return ColoredBox(
+                  color: Color.fromRGBO(0, 0, 0, 0.95 * (1 - t)),
+                  child: Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.identity()
+                      ..translate(0.0, y)
+                      ..scale(1 - 0.08 * t),
+                    child: child,
+                  ),
+                );
+              },
+              child: photos,
+            ),
+          )
+        : photos;
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: CallbackShortcuts(
@@ -270,57 +515,47 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
           autofocus: true,
           child: Stack(
             children: [
-              PageView.builder(
-                controller: _controller,
-                physics: _zoomed
-                    ? const NeverScrollableScrollPhysics()
-                    : const PageScrollPhysics(),
-                itemCount: widget.photos.length,
-                onPageChanged: (value) {
-                  _transform.value = Matrix4.identity();
-                  setState(() => _index = value);
-                },
-                itemBuilder: (context, index) {
-                  final photo = widget.photos[index];
-                  return InteractiveViewer(
-                    transformationController: index == _index ? _transform : null,
-                    minScale: 1,
-                    maxScale: 5,
-                    panEnabled: _zoomed,
-                    onInteractionEnd: (_) => setState(() {}),
-                    child: Center(
-                      child: _HiResPhoto(photo: photo),
-                    ),
-                  );
-                },
-              ),
+              stage,
               Positioned(
                 top: 12.h,
                 right: 12.w,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _CircleActionButton(
-                      tooltip: '下载',
-                      onTap: _downloading ? null : _downloadCurrent,
-                      child: _downloading
-                          ? SizedBox(
-                              width: 18.w,
-                              height: 18.w,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.w,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Icon(
-                              Icons.download_rounded,
-                              color: Colors.white,
-                              size: 22.w,
+                child: SafeArea(
+                  child: compact
+                      ? ValueListenableBuilder<double>(
+                          valueListenable: _dragY,
+                          builder: (context, y, child) {
+                            return Opacity(
+                              opacity: 1 - (y / 280).clamp(0.0, 1.0),
+                              child: child,
+                            );
+                          },
+                          child: _CloseButton(onTap: () => Navigator.of(context).pop()),
+                        )
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _CircleActionButton(
+                              tooltip: '下载',
+                              onTap: _downloading ? null : _downloadCurrent,
+                              child: _downloading
+                                  ? SizedBox(
+                                      width: 18.w,
+                                      height: 18.w,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.w,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Icon(
+                                      Icons.download_rounded,
+                                      color: Colors.white,
+                                      size: 22.w,
+                                    ),
                             ),
-                    ),
-                    SizedBox(width: 8.w),
-                    _CloseButton(onTap: () => Navigator.of(context).pop()),
-                  ],
+                            SizedBox(width: 8.w),
+                            _CloseButton(onTap: () => Navigator.of(context).pop()),
+                          ],
+                        ),
                 ),
               ),
               if (canPrev)
@@ -352,13 +587,25 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage> {
                   left: 0,
                   right: 0,
                   bottom: 20.h,
-                  child: Text(
-                    '${_index + 1} / ${widget.photos.length}',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 13.sp,
-                      fontWeight: FontWeight.w700,
+                  child: SafeArea(
+                    top: false,
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _dragY,
+                      builder: (context, y, child) {
+                        return Opacity(
+                          opacity: 1 - (y / 280).clamp(0.0, 1.0),
+                          child: child,
+                        );
+                      },
+                      child: Text(
+                        '${_index + 1} / ${widget.photos.length}',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13.sp,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -429,11 +676,22 @@ class _VideoViewerPage extends StatefulWidget {
   State<_VideoViewerPage> createState() => _VideoViewerPageState();
 }
 
-class _VideoViewerPageState extends State<_VideoViewerPage> {
+class _VideoViewerPageState extends State<_VideoViewerPage>
+    with SingleTickerProviderStateMixin {
   VideoPlayerController? _controller;
   bool _ready = false;
   bool _startingDownload = false;
   String? _error;
+  final ValueNotifier<double> _dragY = ValueNotifier<double>(0);
+  AnimationController? _backAnim;
+  bool _draggingDown = false;
+  int _pointers = 0;
+  int? _pointer;
+  Offset _origin = Offset.zero;
+  Offset _lastPos = Offset.zero;
+  Duration _lastTime = Duration.zero;
+  double _velocity = 0;
+  bool _layoutLandscape = false;
 
   @override
   void initState() {
@@ -469,8 +727,156 @@ class _VideoViewerPageState extends State<_VideoViewerPage> {
 
   @override
   void dispose() {
+    _backAnim?.dispose();
+    _dragY.dispose();
     _controller?.dispose();
     super.dispose();
+  }
+
+  bool get _isLandscapeVideo {
+    final size = _controller?.value.size;
+    if (size != null && size.width > 0 && size.height > 0) {
+      return size.width > size.height * 1.05;
+    }
+    final width = widget.media.width;
+    final height = widget.media.height;
+    return width > 0 && height > 0 && width > height;
+  }
+
+  bool get _canLayoutFullscreen => _isLandscapeVideo;
+
+  Offset _layoutDelta(Offset from, Offset to) {
+    final delta = to - from;
+    if (!_layoutLandscape) {
+      return delta;
+    }
+    // RotatedBox(quarterTurns: 1)：屏幕坐标转到布局坐标，下滑 = 布局 +Y。
+    return Offset(delta.dy, -delta.dx);
+  }
+
+  void _toggleLayoutFullscreen() {
+    _cancelDrag();
+    setState(() {
+      _layoutLandscape = !_layoutLandscape;
+      _dragY.value = 0;
+    });
+  }
+
+  Widget _wrapLayout(Widget child) {
+    if (!_layoutLandscape) {
+      return child;
+    }
+    final mq = MediaQuery.of(context);
+    final size = mq.size;
+    final padding = mq.padding;
+    return RotatedBox(
+      quarterTurns: 1,
+      child: MediaQuery(
+        data: mq.copyWith(
+          size: Size(size.height, size.width),
+          padding: EdgeInsets.only(
+            left: padding.bottom,
+            top: padding.left,
+            right: padding.top,
+            bottom: padding.right,
+          ),
+        ),
+        child: child,
+      ),
+    );
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    _pointers += 1;
+    if (_pointers > 1) {
+      _cancelDrag();
+      return;
+    }
+    _pointer = event.pointer;
+    _origin = event.position;
+    _lastPos = event.position;
+    _lastTime = event.timeStamp;
+    _velocity = 0;
+    _draggingDown = false;
+    _backAnim?.stop();
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (_pointers > 1 || event.pointer != _pointer) {
+      return;
+    }
+    final delta = _layoutDelta(_origin, event.position);
+    if (!_draggingDown) {
+      if (delta.distance < 12) {
+        return;
+      }
+      if (delta.dy > 8 && delta.dy > delta.dx.abs() * 1.2) {
+        _draggingDown = true;
+      } else {
+        _pointer = null;
+        return;
+      }
+    }
+    final dt = (event.timeStamp - _lastTime).inMicroseconds / 1000000;
+    if (dt > 0) {
+      _velocity = _layoutDelta(_lastPos, event.position).dy / dt;
+    }
+    _lastPos = event.position;
+    _lastTime = event.timeStamp;
+    _dragY.value = delta.dy < 0 ? 0 : delta.dy;
+  }
+
+  void _onPointerUp(PointerEvent event) {
+    if (_pointers > 0) {
+      _pointers -= 1;
+    }
+    if (event.pointer != _pointer) {
+      return;
+    }
+    _pointer = null;
+    if (!_draggingDown) {
+      return;
+    }
+    _draggingDown = false;
+    final y = _dragY.value;
+    if (y > 110 || _velocity > 900) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _snapBack();
+  }
+
+  void _cancelDrag() {
+    _pointer = null;
+    if (_draggingDown) {
+      _draggingDown = false;
+      _snapBack();
+    }
+  }
+
+  void _snapBack() {
+    final start = _dragY.value;
+    if (start <= 0) {
+      _dragY.value = 0;
+      return;
+    }
+    _backAnim?.dispose();
+    final controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    );
+    _backAnim = controller;
+    final anim = CurvedAnimation(parent: controller, curve: Curves.easeOutCubic);
+    anim.addListener(() {
+      _dragY.value = start * (1 - anim.value);
+    });
+    controller.forward().whenComplete(() {
+      if (_backAnim == controller) {
+        _backAnim = null;
+      }
+      controller.dispose();
+      _dragY.value = 0;
+    });
   }
 
   void _toggle() {
@@ -565,19 +971,131 @@ class _VideoViewerPageState extends State<_VideoViewerPage> {
     );
   }
 
+  Future<void> _showDownloadSheet() async {
+    if (_startingDownload) {
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    final action = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.w)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(8.w, 6.h, 8.w, 8.h),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36.w,
+                  height: 4.h,
+                  margin: EdgeInsets.only(bottom: 8.h),
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                ListTile(
+                  leading: Icon(Icons.download_rounded, color: AppColors.text),
+                  title: Text(
+                    '下载',
+                    style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () => Navigator.pop(sheetContext, true),
+                ),
+                ListTile(
+                  title: Text(
+                    '取消',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16.sp,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(sheetContext, false),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (action == true && mounted) {
+      await _download();
+    }
+  }
+
+  Widget _player(VideoPlayerController controller, {required bool compact}) {
+    final ratio = controller.value.aspectRatio == 0
+        ? 16 / 9
+        : controller.value.aspectRatio;
+    return GestureDetector(
+      onTap: _toggle,
+      onLongPress: compact ? _showDownloadSheet : null,
+      child: AspectRatio(
+        aspectRatio: ratio,
+        child: Stack(
+          fit: StackFit.expand,
+          alignment: Alignment.center,
+          children: [
+            VideoPlayer(controller),
+            if (!controller.value.isPlaying)
+              Icon(
+                Icons.play_circle_fill,
+                color: Colors.white,
+                size: 64.w,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: CallbackShortcuts(
-        bindings: <ShortcutActivator, VoidCallback>{
-          const SingleActivator(LogicalKeyboardKey.escape): () => Navigator.of(context).pop(),
-          const SingleActivator(LogicalKeyboardKey.space): _toggle,
-        },
-        child: Focus(
-          autofocus: true,
-          child: Stack(
+    final compact = AppLayout.isCompact(context);
+    final player = _error != null
+        ? Padding(
+            padding: EdgeInsets.all(24.w),
+            child: Text(
+              '无法播放\n$_error',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white, fontSize: 14.sp, height: 1.5),
+            ),
+          )
+        : !_ready || controller == null
+            ? const CircularProgressIndicator(color: Colors.white)
+            : _player(controller, compact: compact);
+    final stage = compact
+        ? Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _onPointerDown,
+            onPointerMove: _onPointerMove,
+            onPointerUp: _onPointerUp,
+            onPointerCancel: _onPointerUp,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _dragY,
+              builder: (context, y, child) {
+                final t = (y / 280).clamp(0.0, 1.0);
+                return ColoredBox(
+                  color: Color.fromRGBO(0, 0, 0, 0.95 * (1 - t)),
+                  child: Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.identity()
+                      ..translate(0.0, y)
+                      ..scale(1 - 0.08 * t),
+                    child: child,
+                  ),
+                );
+              },
+              child: Center(child: player),
+            ),
+          )
+        : Stack(
             children: [
               GestureDetector(
                 onTap: () => Navigator.of(context).pop(),
@@ -586,145 +1104,154 @@ class _VideoViewerPageState extends State<_VideoViewerPage> {
                   child: SizedBox.expand(),
                 ),
               ),
-              Center(
-                child: _error != null
-                    ? Padding(
-                        padding: EdgeInsets.all(24.w),
-                        child: Text(
-                          '无法播放\n$_error',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white, fontSize: 14.sp, height: 1.5),
+              Center(child: player),
+            ],
+          );
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: _wrapLayout(
+        CallbackShortcuts(
+          bindings: <ShortcutActivator, VoidCallback>{
+            const SingleActivator(LogicalKeyboardKey.escape): () => Navigator.of(context).pop(),
+            const SingleActivator(LogicalKeyboardKey.space): _toggle,
+          },
+          child: Focus(
+            autofocus: true,
+            child: Stack(
+              children: [
+              stage,
+              if (!compact && controller != null && _ready)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: <Color>[
+                            Color(0xCC000000),
+                            Color(0x00000000),
+                          ],
                         ),
-                      )
-                    : !_ready || controller == null
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : AspectRatio(
-                            aspectRatio: controller.value.aspectRatio == 0
-                                ? 16 / 9
-                                : controller.value.aspectRatio,
-                            child: Stack(
-                              alignment: Alignment.center,
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(16.w, 12.h, 88.w, 28.h),
+                        child: widget.text.trim().isEmpty
+                            ? const SizedBox.shrink()
+                            : Text(
+                                widget.text.trim(),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14.sp,
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (controller != null && _ready)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: SafeArea(
+                    top: false,
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: <Color>[
+                            Color(0xCC000000),
+                            Color(0x00000000),
+                          ],
+                        ),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(16.w, 20.h, 16.w, 16.h),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (!compact && _authorLabel.isNotEmpty)
+                              Padding(
+                                padding: EdgeInsets.only(bottom: 10.h),
+                                child: MouseRegion(
+                                  cursor: SystemMouseCursors.click,
+                                  child: GestureDetector(
+                                    onTap: _openAuthor,
+                                    child: Text(
+                                      _authorLabel,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13.sp,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            Row(
                               children: [
-                                GestureDetector(
-                                  onTap: _toggle,
-                                  child: Stack(
-                                    fit: StackFit.expand,
-                                    alignment: Alignment.center,
-                                    children: [
-                                      VideoPlayer(controller),
-                                      if (!controller.value.isPlaying)
-                                        Icon(
-                                          Icons.play_circle_fill,
-                                          color: Colors.white,
-                                          size: 64.w,
-                                        ),
-                                    ],
-                                  ),
+                                Expanded(
+                                  child: _VideoScrubBar(controller: controller),
                                 ),
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  top: 0,
-                                  child: IgnorePointer(
-                                    child: DecoratedBox(
-                                      decoration: const BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: <Color>[
-                                            Color(0xCC000000),
-                                            Color(0x00000000),
-                                          ],
-                                        ),
-                                      ),
-                                      child: Padding(
-                                        padding: EdgeInsets.fromLTRB(16.w, 12.h, 88.w, 28.h),
-                                        child: widget.text.trim().isEmpty
-                                            ? const SizedBox.shrink()
-                                            : Text(
-                                                widget.text.trim(),
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 14.sp,
-                                                  height: 1.35,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                      ),
-                                    ),
+                                if (compact && _canLayoutFullscreen) ...[
+                                  SizedBox(width: 4.w),
+                                  _FullscreenButton(
+                                    landscape: _layoutLandscape,
+                                    onTap: _toggleLayoutFullscreen,
                                   ),
-                                ),
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  child: DecoratedBox(
-                                    decoration: const BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.bottomCenter,
-                                        end: Alignment.topCenter,
-                                        colors: <Color>[
-                                          Color(0xCC000000),
-                                          Color(0x00000000),
-                                        ],
-                                      ),
-                                    ),
-                                    child: Padding(
-                                      padding: EdgeInsets.fromLTRB(16.w, 20.h, 16.w, 16.h),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          if (_authorLabel.isNotEmpty)
-                                            Padding(
-                                              padding: EdgeInsets.only(bottom: 10.h),
-                                              child: MouseRegion(
-                                                cursor: SystemMouseCursors.click,
-                                                child: GestureDetector(
-                                                  onTap: _openAuthor,
-                                                  child: Text(
-                                                    _authorLabel,
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 13.sp,
-                                                      fontWeight: FontWeight.w700,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          _VideoScrubBar(controller: controller),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                                ],
                               ],
                             ),
-                          ),
-              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               Positioned(
                 top: 12.h,
                 right: 12.w,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _VideoDownloadButton(
-                      sourceUrl: widget.media.url,
-                      onTap: _download,
-                    ),
-                    SizedBox(width: 8.w),
-                    _CloseButton(onTap: () => Navigator.of(context).pop()),
-                  ],
+                child: SafeArea(
+                  child: compact
+                      ? ValueListenableBuilder<double>(
+                          valueListenable: _dragY,
+                          builder: (context, y, child) {
+                            return Opacity(
+                              opacity: 1 - (y / 280).clamp(0.0, 1.0),
+                              child: child,
+                            );
+                          },
+                          child: _CloseButton(onTap: () => Navigator.of(context).pop()),
+                        )
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _VideoDownloadButton(
+                              sourceUrl: widget.media.url,
+                              onTap: _download,
+                            ),
+                            SizedBox(width: 8.w),
+                            _CloseButton(onTap: () => Navigator.of(context).pop()),
+                          ],
+                        ),
                 ),
               ),
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -954,6 +1481,29 @@ class _CircleActionButton extends StatelessWidget {
         tooltip: tooltip,
         onPressed: onTap,
         icon: child,
+      ),
+    );
+  }
+}
+
+class _FullscreenButton extends StatelessWidget {
+  const _FullscreenButton({
+    required this.landscape,
+    required this.onTap,
+  });
+
+  final bool landscape;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _CircleActionButton(
+      tooltip: landscape ? '退出全屏' : '全屏',
+      onTap: onTap,
+      child: Icon(
+        landscape ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+        color: Colors.white,
+        size: 22.w,
       ),
     );
   }

@@ -1,11 +1,12 @@
 {
   "version": 0.2,
   "configurations": [
+
     {
       "name": "iPhone (profile)",
       "request": "launch",
       "type": "dart",
-      "flutterMode": "profile",
+      "flutterMode": "debug",
       "program": "lib/main.dart",
       "deviceId": "00008120-000679E42680201E"
     },

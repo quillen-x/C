@@ -384,24 +384,41 @@ class XMedia {
 
   bool get isVideo => kind == XMediaKind.video || kind == XMediaKind.gif;
 
+  static String twitterSizedUrl(String raw, String size) {
+    final url = raw.trim();
+    if (url.isEmpty) {
+      return url;
+    }
+    var next = url.replaceAll(
+      RegExp(r':(orig|large|medium|small|thumb|360x360|900x900)$'),
+      ':$size',
+    );
+    if (RegExp(r'name=').hasMatch(next)) {
+      next = next.replaceAll(
+        RegExp(r'name=(orig|large|medium|small|thumb|360x360|900x900)'),
+        'name=$size',
+      );
+    }
+    return next;
+  }
+
   String get originalUrl {
     final raw = url.trim();
     if (raw.isEmpty || kind != XMediaKind.photo) {
       return raw;
     }
-    var next = raw.replaceAll(
-      RegExp(r':(orig|large|medium|small|thumb|360x360|900x900)$'),
-      ':orig',
-    );
-    if (RegExp(r'name=').hasMatch(next)) {
-      next = next.replaceAll(
-        RegExp(r'name=(orig|large|medium|small|thumb|360x360|900x900)'),
-        'name=orig',
-      );
-    } else if (next.contains('pbs.twimg.com') || next.contains('twimg.com')) {
-      next = next.contains('?') ? '$next&name=orig' : '$next?name=orig';
+    var next = twitterSizedUrl(raw, 'orig');
+    if (next.contains('pbs.twimg.com') || next.contains('twimg.com')) {
+      if (!RegExp(r'name=').hasMatch(next) && !RegExp(r':orig$').hasMatch(next)) {
+        next = next.contains('?') ? '$next&name=orig' : '$next?name=orig';
+      }
     }
     return next;
+  }
+
+  String get listUrl {
+    final raw = previewUrl.trim().isNotEmpty ? previewUrl : url;
+    return twitterSizedUrl(raw, 'medium');
   }
 
   String get durationLabel {
@@ -510,6 +527,18 @@ class XPostPage {
 
   final List<XPost> posts;
   final String? cursor;
+}
+
+class XFeedBatch {
+  const XFeedBatch({
+    this.posts = const <XPost>[],
+    this.cursors = const <String, String>{},
+  });
+
+  final List<XPost> posts;
+  final Map<String, String> cursors;
+
+  bool get hasMore => cursors.isNotEmpty;
 }
 
 class XAccountPage {

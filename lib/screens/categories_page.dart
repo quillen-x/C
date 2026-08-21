@@ -82,7 +82,12 @@ class _CategoriesPageState extends State<CategoriesPage> {
           }
         }
       });
-    } catch (_) {}
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, '读取分类失败：$error', error: true);
+    }
   }
 
   List<String> get _categoryKeys {
@@ -122,12 +127,27 @@ class _CategoriesPageState extends State<CategoriesPage> {
   }
 
   Future<void> _viewCategory(String category) async {
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return _CategoryMembersDialog(category: category);
-      },
-    );
+    if (AppLayout.isCompact(context)) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (context) {
+            return Scaffold(
+              backgroundColor: AppColors.bg,
+              body: SafeArea(
+                child: _CategoryMembersDialog(category: category, asPage: true),
+              ),
+            );
+          },
+        ),
+      );
+    } else {
+      await showDialog<void>(
+        context: context,
+        builder: (context) {
+          return _CategoryMembersDialog(category: category);
+        },
+      );
+    }
     if (!mounted) {
       return;
     }
@@ -533,24 +553,49 @@ class _CategoriesPageState extends State<CategoriesPage> {
     }
     final compact = AppLayout.isCompact(context);
     final canPop = Navigator.of(context).canPop();
+    if (compact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PhoneNavBar(
+            title: '分类',
+            centerTitle: true,
+            onBack: canPop ? () => Navigator.of(context).pop() : null,
+          ),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.fromLTRB(12.w, 0, 12.w, 12.h),
+              children: [
+                InlineActionField(
+                  controller: _newCategory,
+                  hint: '新分类名，例如 news',
+                  actionLabel: '新增',
+                  onAction: _addCategory,
+                ),
+                SizedBox(height: 8.h),
+                ..._categoryKeys.map(_phoneCategoryTile),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (compact || canPop)
+        if (canPop)
           PageHeader(
-            trailing: canPop
-                ? IconButton(
-                    tooltip: '返回',
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: Icon(Icons.arrow_back_ios_new, size: 18.w),
-                  )
-                : null,
+            trailing: IconButton(
+              tooltip: '返回',
+              onPressed: () => Navigator.of(context).pop(),
+              icon: Icon(Icons.arrow_back_ios_new, size: 18.w),
+            ),
           ),
         Expanded(
           child: ListView(
             padding: EdgeInsets.fromLTRB(
               16.w,
-              compact || canPop ? 0 : 16.h,
+              canPop ? 0 : 16.h,
               16.w,
               16.h,
             ),
@@ -560,7 +605,6 @@ class _CategoriesPageState extends State<CategoriesPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('关注分类', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800)),
-                   
                     SizedBox(height: 12.h),
                     InlineActionField(
                       controller: _newCategory,
@@ -569,118 +613,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
                       onAction: _addCategory,
                     ),
                     SizedBox(height: 8.h),
-                    ..._categoryKeys.map((key) {
-                      final count = _categoryCounts[key] ?? 0;
-                      final on = _visibleCategories.any(
-                        (item) => item.trim().toLowerCase() == key,
-                      );
-                      final media = _mediaFor(key);
-                      final syncing = _syncingCategory == key;
-                      final exporting = _exportingCategory == key;
-                      final busy = _purging || _syncingCategory != null;
-                      return Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8.h),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        XAccount.categoryLabel(key),
-                                        style: TextStyle(
-                                          fontSize: 15.sp,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      Text(
-                                        '$count 人',
-                                        style: TextStyle(
-                                          color: AppColors.textMuted,
-                                          fontSize: 12.sp,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                _iconAction(
-                                  asset: 'assets/images/watch.svg',
-                                  tooltip: '查看',
-                                  onPressed: () => _viewCategory(key),
-                                ),
-                                _iconAction(
-                                  asset: 'assets/images/export.svg',
-                                  tooltip: exporting ? '导出中' : '导出',
-                                  busy: exporting,
-                                  onPressed: busy || _exportingCategory != null
-                                      ? null
-                                      : () => _exportCategory(key),
-                                ),
-                                _iconAction(
-                                  asset: 'assets/images/delete.svg',
-                                  tooltip: '删除',
-                                  color: AppColors.danger,
-                                  onPressed: busy
-                                      ? null
-                                      : () => _deleteCategory(key),
-                                ),
-                                _iconAction(
-                                  asset: 'assets/images/sync.svg',
-                                  tooltip: syncing ? '同步中' : '同步资料',
-                                  busy: syncing,
-                                  onPressed: _syncingCategory != null
-                                      ? null
-                                      : () => _syncCategory(key),
-                                ),
-                                Switch(
-                                  value: on,
-                                  activeThumbColor: AppColors.accent,
-                                  onChanged: (value) =>
-                                      _toggleCategory(key, value),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 6.h),
-                            Wrap(
-                              spacing: 6.w,
-                              runSpacing: 6.h,
-                              children: [
-                                _mediaChip(
-                                  asset: 'assets/images/posts.svg',
-                                  tooltip: '帖子',
-                                  on: media.posts,
-                                  onTap: () => _toggleCategoryMedia(
-                                    key,
-                                    posts: !media.posts,
-                                  ),
-                                ),
-                                _mediaChip(
-                                  asset: 'assets/images/image.svg',
-                                  tooltip: '图片',
-                                  on: media.photos,
-                                  onTap: () => _toggleCategoryMedia(
-                                    key,
-                                    photos: !media.photos,
-                                  ),
-                                ),
-                                _mediaChip(
-                                  asset: 'assets/images/video.svg',
-                                  tooltip: '视频',
-                                  on: media.videos,
-                                  onTap: () => _toggleCategoryMedia(
-                                    key,
-                                    videos: !media.videos,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
+                    ..._categoryKeys.map(_desktopCategoryTile),
                   ],
                 ),
               ),
@@ -690,12 +623,223 @@ class _CategoriesPageState extends State<CategoriesPage> {
       ],
     );
   }
+
+  Widget _phoneCategoryTile(String key) {
+    final count = _categoryCounts[key] ?? 0;
+    final on = _visibleCategories.any(
+      (item) => item.trim().toLowerCase() == key,
+    );
+    final media = _mediaFor(key);
+    final syncing = _syncingCategory == key;
+    final exporting = _exportingCategory == key;
+    final busy = _purging || _syncingCategory != null;
+    return Column(
+      children: [
+        InkWell(
+          onTap: () => _viewCategory(key),
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 10.h),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            XAccount.categoryLabel(key),
+                            style: TextStyle(
+                              fontSize: 16.sp,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          SizedBox(height: 2.h),
+                          Text(
+                            '$count 人',
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 12.sp,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: on,
+                      activeThumbColor: AppColors.accent,
+                      onChanged: (value) => _toggleCategory(key, value),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8.h),
+                Row(
+                  children: [
+                    _mediaChip(
+                      asset: 'assets/images/posts.svg',
+                      tooltip: '帖子',
+                      on: media.posts,
+                      onTap: () => _toggleCategoryMedia(key, posts: !media.posts),
+                    ),
+                    SizedBox(width: 6.w),
+                    _mediaChip(
+                      asset: 'assets/images/image.svg',
+                      tooltip: '图片',
+                      on: media.photos,
+                      onTap: () => _toggleCategoryMedia(key, photos: !media.photos),
+                    ),
+                    SizedBox(width: 6.w),
+                    _mediaChip(
+                      asset: 'assets/images/video.svg',
+                      tooltip: '视频',
+                      on: media.videos,
+                      onTap: () => _toggleCategoryMedia(key, videos: !media.videos),
+                    ),
+                    const Spacer(),
+                    _iconAction(
+                      asset: 'assets/images/export.svg',
+                      tooltip: exporting ? '导出中' : '导出',
+                      busy: exporting,
+                      onPressed: busy || _exportingCategory != null
+                          ? null
+                          : () => _exportCategory(key),
+                    ),
+                    _iconAction(
+                      asset: 'assets/images/sync.svg',
+                      tooltip: syncing ? '同步中' : '同步资料',
+                      busy: syncing,
+                      onPressed: _syncingCategory != null
+                          ? null
+                          : () => _syncCategory(key),
+                    ),
+                    _iconAction(
+                      asset: 'assets/images/delete.svg',
+                      tooltip: '删除',
+                      color: AppColors.danger,
+                      onPressed: busy ? null : () => _deleteCategory(key),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        Divider(height: 1.h, color: AppColors.border),
+      ],
+    );
+  }
+
+  Widget _desktopCategoryTile(String key) {
+    final count = _categoryCounts[key] ?? 0;
+    final on = _visibleCategories.any(
+      (item) => item.trim().toLowerCase() == key,
+    );
+    final media = _mediaFor(key);
+    final syncing = _syncingCategory == key;
+    final exporting = _exportingCategory == key;
+    final busy = _purging || _syncingCategory != null;
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 8.h),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      XAccount.categoryLabel(key),
+                      style: TextStyle(
+                        fontSize: 15.sp,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '$count 人',
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12.sp,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _iconAction(
+                asset: 'assets/images/watch.svg',
+                tooltip: '查看',
+                onPressed: () => _viewCategory(key),
+              ),
+              _iconAction(
+                asset: 'assets/images/export.svg',
+                tooltip: exporting ? '导出中' : '导出',
+                busy: exporting,
+                onPressed: busy || _exportingCategory != null
+                    ? null
+                    : () => _exportCategory(key),
+              ),
+              _iconAction(
+                asset: 'assets/images/delete.svg',
+                tooltip: '删除',
+                color: AppColors.danger,
+                onPressed: busy ? null : () => _deleteCategory(key),
+              ),
+              _iconAction(
+                asset: 'assets/images/sync.svg',
+                tooltip: syncing ? '同步中' : '同步资料',
+                busy: syncing,
+                onPressed: _syncingCategory != null
+                    ? null
+                    : () => _syncCategory(key),
+              ),
+              Switch(
+                value: on,
+                activeThumbColor: AppColors.accent,
+                onChanged: (value) => _toggleCategory(key, value),
+              ),
+            ],
+          ),
+          SizedBox(height: 6.h),
+          Wrap(
+            spacing: 6.w,
+            runSpacing: 6.h,
+            children: [
+              _mediaChip(
+                asset: 'assets/images/posts.svg',
+                tooltip: '帖子',
+                on: media.posts,
+                onTap: () => _toggleCategoryMedia(key, posts: !media.posts),
+              ),
+              _mediaChip(
+                asset: 'assets/images/image.svg',
+                tooltip: '图片',
+                on: media.photos,
+                onTap: () => _toggleCategoryMedia(key, photos: !media.photos),
+              ),
+              _mediaChip(
+                asset: 'assets/images/video.svg',
+                tooltip: '视频',
+                on: media.videos,
+                onTap: () => _toggleCategoryMedia(key, videos: !media.videos),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _CategoryMembersDialog extends StatefulWidget {
-  const _CategoryMembersDialog({required this.category});
+  const _CategoryMembersDialog({
+    required this.category,
+    this.asPage = false,
+  });
 
   final String category;
+  final bool asPage;
 
   @override
   State<_CategoryMembersDialog> createState() => _CategoryMembersDialogState();
@@ -1192,99 +1336,237 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final compact = AppLayout.isCompact(context);
     final rows = _filtered;
+    final title = '$_label · ${rows.length} 人';
+    final tools = Padding(
+      padding: EdgeInsets.fromLTRB(
+        widget.asPage ? 12.w : 16.w,
+        0,
+        widget.asPage ? 12.w : 16.w,
+        widget.asPage ? 8.h : 10.h,
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 48.h,
+            child: AppTextField(
+              controller: _query,
+              hint: widget.asPage ? '搜索成员' : '搜索 name / username / description',
+              prefixIcon: Icons.search,
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+            ),
+          ),
+          SizedBox(height: 8.h),
+          if (widget.asPage)
+            Wrap(
+              spacing: 8.w,
+              runSpacing: 8.h,
+              children: [
+                SizedBox(
+                  width: (size.width - 32.w) / 2,
+                  child: _purgeField(
+                    controller: _followersMax,
+                    hint: '粉丝',
+                    onDelete: _busy ? null : _purgeFollowersLessThan,
+                  ),
+                ),
+                SizedBox(
+                  width: (size.width - 32.w) / 2,
+                  child: _purgeField(
+                    controller: _tweetsMax,
+                    hint: '推文',
+                    onDelete: _busy ? null : _purgeTweetsLessThan,
+                  ),
+                ),
+                SizedBox(
+                  width: (size.width - 32.w) / 2,
+                  child: _purgeField(
+                    controller: _descKeyword,
+                    hint: '描述不含关键字',
+                    onDelete: _busy ? null : _purgeDescriptionMissingKeyword,
+                  ),
+                ),
+                SizedBox(
+                  width: (size.width - 32.w) / 2,
+                  child: _purgeField(
+                    controller: _inactiveDays,
+                    hint: '未发帖天数',
+                    actionLabel: '扫描',
+                    actionColor: AppColors.accent,
+                    onDelete: _busy ? null : _scanInactive,
+                  ),
+                ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: _purgeField(
+                    controller: _followersMax,
+                    hint: '粉丝',
+                    onDelete: _busy ? null : _purgeFollowersLessThan,
+                  ),
+                ),
+                SizedBox(width: 8.w),
+                Expanded(
+                  child: _purgeField(
+                    controller: _tweetsMax,
+                    hint: '推文',
+                    onDelete: _busy ? null : _purgeTweetsLessThan,
+                  ),
+                ),
+                SizedBox(width: 8.w),
+                Expanded(
+                  child: _purgeField(
+                    controller: _descKeyword,
+                    hint: '描述不含关键字',
+                    onDelete: _busy ? null : _purgeDescriptionMissingKeyword,
+                  ),
+                ),
+                SizedBox(width: 8.w),
+                Expanded(
+                  child: _purgeField(
+                    controller: _inactiveDays,
+                    hint: '未发帖天数',
+                    actionLabel: '扫描',
+                    actionColor: AppColors.accent,
+                    onDelete: _busy ? null : _scanInactive,
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (widget.asPage)
+          PhoneNavBar(
+            title: title,
+            centerTitle: true,
+            onBack: () => Navigator.of(context).pop(),
+          )
+        else
+          Padding(
+            padding: EdgeInsets.fromLTRB(16.w, 10.h, 8.w, 8.h),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: Icon(Icons.close, color: AppColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+        tools,
+        Expanded(
+          child: widget.asPage ? _buildPhoneBody(rows) : _buildBody(rows),
+        ),
+      ],
+    );
+    if (widget.asPage) {
+      return ColoredBox(color: AppColors.bg, child: body);
+    }
     return Dialog(
       backgroundColor: AppColors.surface,
-      insetPadding: EdgeInsets.symmetric(
-        horizontal: compact ? 12.w : 36.w,
-        vertical: compact ? 16.h : 28.h,
-      ),
+      insetPadding: EdgeInsets.symmetric(horizontal: 36.w, vertical: 28.h),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.w)),
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 980.w,
           maxHeight: size.height * 0.88,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(16.w, 10.h, 8.w, 8.h),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '$_label · ${rows.length} 人',
-                      style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: Icon(Icons.close, color: AppColors.textMuted),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 10.h),
-              child: Column(
-                children: [
-                  SizedBox(
-                    height: 48.h,
-                    child: AppTextField(
-                      controller: _query,
-                      hint: '搜索 name / username / description',
-                      prefixIcon: Icons.search,
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
-                    ),
-                  ),
-                  SizedBox(height: 8.h),
-                  Row(
+        child: body,
+      ),
+    );
+  }
+
+  Widget _buildPhoneBody(List<XAccount> rows) {
+    if (_loading && _all.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && _all.isEmpty) {
+      return EmptyHint(
+        icon: Icons.storage_outlined,
+        title: '读取失败',
+        detail: '$_error',
+      );
+    }
+    if (_all.isEmpty) {
+      return EmptyHint(
+        icon: Icons.people_outline,
+        title: '这个分类还没有关注人',
+        detail: '在关注页添加账号，或先同步资料。',
+      );
+    }
+    if (rows.isEmpty) {
+      return const EmptyHint(
+        icon: Icons.search_off,
+        title: '没有匹配的记录',
+        detail: '换个关键词再试。',
+      );
+    }
+    return ListView.separated(
+      padding: EdgeInsets.fromLTRB(12.w, 0, 4.w, 16.h),
+      itemCount: rows.length,
+      separatorBuilder: (_, __) => Divider(height: 1.h, color: AppColors.border),
+      itemBuilder: (context, index) {
+        final account = rows[index];
+        final displayName =
+            account.name.trim().isEmpty ? account.username : account.name;
+        return InkWell(
+          onTap: () => showAccountHome(context, account),
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 10.h),
+            child: Row(
+              children: [
+                XAvatar(url: account.avatarUrl, size: 40),
+                SizedBox(width: 10.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: _purgeField(
-                          controller: _followersMax,
-                          hint: '粉丝',
-                          onDelete: _busy ? null : _purgeFollowersLessThan,
+                      Text(
+                        displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15.sp,
                         ),
                       ),
-                      SizedBox(width: 8.w),
-                      Expanded(
-                        child: _purgeField(
-                          controller: _tweetsMax,
-                          hint: '推文',
-                          onDelete: _busy ? null : _purgeTweetsLessThan,
-                        ),
-                      ),
-                      SizedBox(width: 8.w),
-                      Expanded(
-                        child: _purgeField(
-                          controller: _descKeyword,
-                          hint: '描述不含关键字',
-                          onDelete: _busy ? null : _purgeDescriptionMissingKeyword,
-                        ),
-                      ),
-                      SizedBox(width: 8.w),
-                      Expanded(
-                        child: _purgeField(
-                          controller: _inactiveDays,
-                          hint: '未发帖天数',
-                          actionLabel: '扫描',
-                          actionColor: AppColors.accent,
-                          onDelete: _busy ? null : _scanInactive,
+                      Text(
+                        '@${account.username}'
+                            '${account.followers > 0 ? ' · ${account.followers} 粉丝' : ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 12.sp,
                         ),
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+                IconButton(
+                  tooltip: '删除',
+                  onPressed: _busy ? null : () => _delete(account),
+                  icon: Icon(Icons.close, size: 18.w, color: AppColors.textMuted),
+                ),
+              ],
             ),
-            Expanded(child: _buildBody(rows)),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
