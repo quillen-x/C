@@ -11,6 +11,8 @@ import 'services/x_trends_service.dart';
 import 'services/x_video_service.dart';
 
 class AppController extends ChangeNotifier {
+  static const _sexInactiveDays = 180;
+
   AppSettings settings = AppSettings();
   final List<DownloadTask> tasks = <DownloadTask>[];
   final AccountDb accountDb = AccountDb();
@@ -201,6 +203,10 @@ class AppController extends ChangeNotifier {
           final tagged = account.copyWith(category: category);
           await accountDb.upsert(tagged);
           await accountDb.updateCategory(tagged.username, tagged.category);
+          try {
+            final page = await xFollowingService.fetchPostsPage(username, count: 8);
+            await recordLastPostAt(username, page.posts);
+          } catch (_) {}
         } catch (_) {
           failed += 1;
         }
@@ -303,7 +309,30 @@ class AppController extends ChangeNotifier {
   }
 
   bool showsAccount(XAccount account) {
-    return settings.showsCategory(account.category);
+    if (!settings.showsCategory(account.category)) {
+      return false;
+    }
+    if (account.categoryKey == 'sex' && !_isSexRecentlyActive(account)) {
+      return false;
+    }
+    return true;
+  }
+
+  bool _isSexRecentlyActive(XAccount account) {
+    final last = account.lastPostAt;
+    if (last <= 0) {
+      return true;
+    }
+    final cutoff = DateTime.now().subtract(const Duration(days: _sexInactiveDays));
+    return !DateTime.fromMillisecondsSinceEpoch(last).isBefore(cutoff);
+  }
+
+  Future<void> recordLastPostAt(String username, List<XPost> posts) async {
+    final latest = XPost.latestMillis(posts);
+    if (latest <= 0) {
+      return;
+    }
+    await accountDb.updateLastPostAt(username, latest);
   }
 
   bool _allowsMedia(XAccount account, AppPage? mediaPage) {

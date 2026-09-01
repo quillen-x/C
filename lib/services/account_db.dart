@@ -52,6 +52,11 @@ class AccountDb {
         'ALTER TABLE accounts ADD COLUMN special INTEGER NOT NULL DEFAULT 0',
       );
     }
+    if (!columns.contains('last_post_at')) {
+      db.execute(
+        'ALTER TABLE accounts ADD COLUMN last_post_at INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 
   static String get filePath => '${IoHelpers.supportDir.path}/accounts.db';
@@ -98,6 +103,7 @@ class AccountDb {
       tweets: (row['tweets'] as num?)?.toInt() ?? 0,
       protected: (row['protected'] as num?)?.toInt() == 1,
       updatedAt: (row['updated_at'] as num?)?.toInt() ?? 0,
+      lastPostAt: (row['last_post_at'] as num?)?.toInt() ?? 0,
       category: '${row['category'] ?? ''}',
       special: (row['special'] as num?)?.toInt() == 1,
     );
@@ -162,15 +168,45 @@ class AccountDb {
     );
   }
 
-  Future<void> updateSpecial(String username, bool special) async {
+  Future<void> updateLastPostAt(String username, int millis) async {
     final name = username.trim();
-    if (name.isEmpty) {
+    if (name.isEmpty || millis <= 0) {
       return;
     }
     (await _open()).execute(
-      'UPDATE accounts SET special = ? WHERE username = ? COLLATE NOCASE',
-      <Object>[special ? 1 : 0, name],
+      'UPDATE accounts SET last_post_at = MAX(last_post_at, ?) WHERE username = ? COLLATE NOCASE',
+      <Object>[millis, name],
     );
+  }
+
+  Future<void> updateSpecial(String username, bool special) async {
+    await updateSpecialAll(<String>[username], special);
+  }
+
+  Future<void> updateSpecialAll(Iterable<String> usernames, bool special) async {
+    final names = usernames
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+    if (names.isEmpty) {
+      return;
+    }
+    final db = await _open();
+    final stmt = db.prepare(
+      'UPDATE accounts SET special = ? WHERE username = ? COLLATE NOCASE',
+    );
+    try {
+      db.execute('BEGIN');
+      for (final name in names) {
+        stmt.execute(<Object>[special ? 1 : 0, name]);
+      }
+      db.execute('COMMIT');
+    } catch (_) {
+      db.execute('ROLLBACK');
+      rethrow;
+    } finally {
+      stmt.dispose();
+    }
   }
 
   Future<void> delete(String username) async {

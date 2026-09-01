@@ -120,16 +120,22 @@ class _CommentsDialogState extends State<_CommentsDialog> {
       if (!mounted) {
         return;
       }
+      final originalId = widget.post.id;
+      final cleaned = page.replies
+          .where((item) => item.id != originalId)
+          .where((item) => !_isBlockedCommentAuthor(item))
+          .map(_withoutOriginalMention)
+          .toList();
       setState(() {
         if (more) {
           final seen = _replies.map((item) => item.id).toSet();
-          final added = page.replies.where((item) => seen.add(item.id)).toList();
+          final added = cleaned.where((item) => seen.add(item.id)).toList();
           _replies.addAll(added);
           _cursor = added.isEmpty ? null : page.cursor;
         } else {
           _replies
             ..clear()
-            ..addAll(page.replies);
+            ..addAll(cleaned);
           _cursor = page.cursor;
         }
         _pages += 1;
@@ -155,6 +161,53 @@ class _CommentsDialogState extends State<_CommentsDialog> {
         });
       }
     }
+  }
+
+  static bool _isBlockedCommentAuthor(XPost reply) {
+    const blocked = '上门';
+    return reply.authorName.contains(blocked) ||
+        reply.username.contains(blocked) ||
+        reply.displayName.contains(blocked);
+  }
+
+  /// 去掉评论开头对原帖作者的 @提及（API 常会带上）。
+  XPost _withoutOriginalMention(XPost reply) {
+    final handle = widget.post.username.trim();
+    if (handle.isEmpty) {
+      return reply;
+    }
+    final text = _stripLeadingMention(reply.text, handle);
+    final translation = _stripLeadingMention(reply.translation, handle);
+    if (text == reply.text && translation == reply.translation) {
+      return reply;
+    }
+    return XPost(
+      id: reply.id,
+      username: reply.username,
+      text: text,
+      url: reply.url,
+      publishedAt: reply.publishedAt,
+      media: reply.media,
+      translation: translation,
+      lang: reply.lang,
+      avatarUrl: reply.avatarUrl,
+      authorName: reply.authorName,
+    );
+  }
+
+  static String _stripLeadingMention(String text, String username) {
+    final raw = text.trimLeft();
+    if (raw.isEmpty || username.isEmpty) {
+      return text;
+    }
+    final match = RegExp(
+      r'^@' + RegExp.escape(username) + r'(?:\s+|$)',
+      caseSensitive: false,
+    ).firstMatch(raw);
+    if (match == null) {
+      return text;
+    }
+    return raw.substring(match.end).trimLeft();
   }
 
   @override
@@ -360,53 +413,92 @@ class _CommentsDialogState extends State<_CommentsDialog> {
             borderRadius: BorderRadius.circular(12.w),
             border: Border.all(color: AppColors.border),
           ),
-          child: Column(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '@${reply.username}',
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.sp),
-                    ),
-                  ),
-                  if (reply.publishedAt != null)
-                    Text(
-                      formatPostTime(reply.publishedAt!),
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 11.sp),
-                    ),
-                ],
+              GestureDetector(
+                onTap: () => XFeedLinks.openMention?.call(context, reply.username),
+                child: XAvatar(url: reply.avatarUrl, size: 36),
               ),
-              if (view.mainText.isNotEmpty) ...[
-                SizedBox(height: 6.h),
-                _RichPostText(
-                  text: view.mainText,
-                  style: TextStyle(height: 1.45, fontSize: 13.sp),
-                  selectable: true,
-                ),
-                if (view.hasTranslation) ...[
-                  SizedBox(height: 4.h),
-                  _RichPostText(
-                    text: reply.text,
-                    style: TextStyle(
-                      height: 1.4,
-                      fontSize: 12.sp,
-                      color: AppColors.textMuted,
+              SizedBox(width: 10.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () =>
+                                XFeedLinks.openMention?.call(context, reply.username),
+                            behavior: HitTestBehavior.opaque,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  reply.displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13.sp,
+                                  ),
+                                ),
+                                Text(
+                                  '@${reply.username}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: AppColors.textMuted,
+                                    fontSize: 11.sp,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (reply.publishedAt != null)
+                          Text(
+                            formatPostTime(reply.publishedAt!),
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 11.sp,
+                            ),
+                          ),
+                      ],
                     ),
-                    selectable: true,
-                  ),
-                ],
-              ],
-              if (reply.media.isNotEmpty) ...[
-                SizedBox(height: 8.h),
-                _MomentsMediaGrid(
-                  media: reply.media,
-                  username: reply.username,
-                  displayName: reply.displayName,
-                  text: reply.displayText,
+                    if (view.mainText.isNotEmpty) ...[
+                      SizedBox(height: 6.h),
+                      _RichPostText(
+                        text: view.mainText,
+                        style: TextStyle(height: 1.45, fontSize: 13.sp),
+                        selectable: true,
+                      ),
+                      if (view.hasTranslation) ...[
+                        SizedBox(height: 4.h),
+                        _RichPostText(
+                          text: reply.text,
+                          style: TextStyle(
+                            height: 1.4,
+                            fontSize: 12.sp,
+                            color: AppColors.textMuted,
+                          ),
+                          selectable: true,
+                        ),
+                      ],
+                    ],
+                    if (reply.media.isNotEmpty) ...[
+                      SizedBox(height: 8.h),
+                      _MomentsMediaGrid(
+                        media: reply.media,
+                        username: reply.username,
+                        displayName: reply.displayName,
+                        text: reply.displayText,
+                      ),
+                    ],
+                  ],
                 ),
-              ],
+              ),
             ],
           ),
         );

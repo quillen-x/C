@@ -164,7 +164,10 @@ class _CategoriesPageState extends State<CategoriesPage> {
       if (account.categoryKey != key) {
         return false;
       }
-      return followed.contains(account.username.toLowerCase());
+      if (!followed.contains(account.username.toLowerCase())) {
+        return false;
+      }
+      return app.showsAccount(account);
     }).toList()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   }
@@ -917,7 +920,10 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
         if (account.categoryKey != key) {
           return false;
         }
-        return followed.contains(account.username.toLowerCase());
+        if (!followed.contains(account.username.toLowerCase())) {
+          return false;
+        }
+        return app.showsAccount(account);
       }).toList();
       if (!mounted) {
         return;
@@ -1135,7 +1141,8 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
     _scanCancel = false;
     setState(() => _busy = true);
     final cutoff = DateTime.now().subtract(Duration(days: days));
-    final service = AppScope.of(context).xFollowingService;
+    final app = AppScope.of(context);
+    final service = app.xFollowingService;
     var removed = 0;
     var done = 0;
     var failed = 0;
@@ -1226,6 +1233,10 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
         setDialog?.call(() {});
         try {
           final page = await service.fetchPostsPage(account.username, count: 8);
+          final latestMillis = XPost.latestMillis(page.posts);
+          if (latestMillis > 0) {
+            await app.recordLastPostAt(account.username, page.posts);
+          }
           DateTime? latest;
           for (final post in page.posts) {
             final time = post.publishedAt;

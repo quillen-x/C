@@ -1944,6 +1944,7 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
     } catch (_) {}
     try {
       final page = await app.xFollowingService.fetchPostsPage(username);
+      await app.recordLastPostAt(username, page.posts);
       if (!mounted) {
         return;
       }
@@ -2339,7 +2340,7 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
                           onDownload: _downloadPost,
                           onTap: () => showPostComments(context, _posts[index]),
                           framed: !asPage,
-                          textSize: 16.sp,
+                          textSize: asPage ? 16.sp : 13.sp,
                           textWeight: FontWeight.w300,
                         );
                       },

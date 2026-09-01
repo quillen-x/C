@@ -286,15 +286,16 @@ class _XSearchPageState extends State<XSearchPage> {
     final app = AppScope.of(context);
     try {
       final saved = await app.followAndSave(
-        account,
+        account.copyWith(special: true),
         category: _effectiveCategory,
       );
+      await app.accountDb.updateSpecial(saved.username, true);
       if (!mounted) {
         return;
       }
       showAppSnack(
         context,
-        '已关注 @${saved.username}，已加入「${XAccount.categoryLabel(saved.category)}」',
+        '已关注 @${saved.username}，已加入「${XAccount.categoryLabel(saved.category)}」并列入特别关注',
       );
     } catch (error) {
       if (!mounted) {
@@ -369,9 +370,14 @@ class _XSearchPageState extends State<XSearchPage> {
     }
     setState(() => _assigning = true);
     try {
-      final result = await AppScope.of(context).addAccountsToCategory(
+      final app = AppScope.of(context);
+      final result = await app.addAccountsToCategory(
         _users,
         category: category,
+      );
+      await app.accountDb.updateSpecialAll(
+        _users.map((account) => account.username),
+        true,
       );
       if (!mounted) {
         return;
@@ -382,16 +388,22 @@ class _XSearchPageState extends State<XSearchPage> {
         return;
       }
       if (result.followed == 0) {
-        showAppSnack(context, '已将 ${result.updated} 人归入「$label」');
+        showAppSnack(
+          context,
+          '已将 ${result.updated} 人归入「$label」并列入特别关注',
+        );
         return;
       }
       if (result.updated == 0) {
-        showAppSnack(context, '已关注 ${result.followed} 人，已加入「$label」');
+        showAppSnack(
+          context,
+          '已关注 ${result.followed} 人，已加入「$label」并列入特别关注',
+        );
         return;
       }
       showAppSnack(
         context,
-        '已将 ${result.total} 人加入「$label」（新增关注 ${result.followed}）',
+        '已将 ${result.total} 人加入「$label」（新增关注 ${result.followed}）并列入特别关注',
       );
     } catch (error) {
       if (!mounted) {

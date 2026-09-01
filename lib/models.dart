@@ -319,6 +319,7 @@ class XAccount {
     this.id = '',
     this.protected = false,
     this.updatedAt = 0,
+    this.lastPostAt = 0,
     this.category = '',
     this.special = false,
   });
@@ -334,6 +335,7 @@ class XAccount {
   final int tweets;
   final bool protected;
   final int updatedAt;
+  final int lastPostAt;
   final String category;
   final bool special;
 
@@ -344,7 +346,7 @@ class XAccount {
     return key.isEmpty ? '未分类' : key;
   }
 
-  XAccount copyWith({String? category, bool? special}) {
+  XAccount copyWith({String? category, bool? special, int? lastPostAt}) {
     return XAccount(
       id: id,
       username: username,
@@ -357,6 +359,7 @@ class XAccount {
       tweets: tweets,
       protected: protected,
       updatedAt: updatedAt,
+      lastPostAt: lastPostAt ?? this.lastPostAt,
       category: category ?? this.category,
       special: special ?? this.special,
     );
@@ -507,6 +510,21 @@ class XPost {
   bool get hasVideo => media.any((item) => item.isVideo);
 
   int get photoCount => media.where((item) => item.kind == XMediaKind.photo).length;
+
+  static int latestMillis(Iterable<XPost> posts) {
+    var latest = 0;
+    for (final post in posts) {
+      final time = post.publishedAt;
+      if (time == null) {
+        continue;
+      }
+      final millis = time.millisecondsSinceEpoch;
+      if (millis > latest) {
+        latest = millis;
+      }
+    }
+    return latest;
+  }
 }
 
 class XReplyPage {
