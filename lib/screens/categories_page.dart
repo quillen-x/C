@@ -5,6 +5,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../models.dart';
 import '../services/account_db.dart';
 import '../services/category_excel.dart';
+import '../services/x_following_service.dart';
 import '../theme.dart';
 import '../widgets/app_layout.dart';
 import '../widgets/app_scope.dart';
@@ -29,6 +30,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
   bool _loaded = false;
   String? _syncingCategory;
   String? _exportingCategory;
+  String? _addingCategory;
   bool _exportingAll = false;
   bool _syncCancel = false;
   int _syncDone = 0;
@@ -155,6 +157,163 @@ class _CategoriesPageState extends State<CategoriesPage> {
     await _loadCategories();
   }
 
+  Future<void> _batchAddAccounts(String category) async {
+    if (_addingCategory != null ||
+        _purging ||
+        _syncingCategory != null ||
+        _exportingAll ||
+        _exportingCategory != null) {
+      return;
+    }
+    final label = XAccount.categoryLabel(category);
+    final controller = TextEditingController();
+    final raw = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: Text(
+            '批量添加账号',
+            style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
+          ),
+          content: SizedBox(
+            width: 420.w,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '将按空格拆分后加入「$label」',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 13.sp),
+                ),
+                SizedBox(height: 12.h),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  minLines: 4,
+                  maxLines: 8,
+                  style: TextStyle(color: AppColors.text, fontSize: 14.sp),
+                  cursorColor: AppColors.accent,
+                  decoration: InputDecoration(
+                    hintText: '例如 NASA SpaceX OpenAI',
+                    hintStyle: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 13.sp,
+                    ),
+                    filled: true,
+                    fillColor: AppColors.surfaceAlt,
+                    contentPadding: EdgeInsets.all(12.w),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.w),
+                      borderSide: BorderSide(color: AppColors.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.w),
+                      borderSide: BorderSide(color: AppColors.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.w),
+                      borderSide: BorderSide(
+                        color: AppColors.accent,
+                        width: 1.4.w,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(
+                '取消',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 14.sp),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+              child: Text(
+                '添加',
+                style: TextStyle(color: AppColors.accent, fontSize: 14.sp),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (raw == null || !mounted) {
+      return;
+    }
+    final tokens = raw
+        .trim()
+        .split(RegExp(r'[\s\u3000]+'))
+        .where((item) => item.isNotEmpty)
+        .toList();
+    if (tokens.isEmpty) {
+      showAppSnack(context, '请输入账号名，用空格分隔', error: true);
+      return;
+    }
+    final names = <String>[];
+    final seen = <String>{};
+    var invalid = 0;
+    for (final token in tokens) {
+      final username = XFollowingService.extractUsername(token);
+      if (username == null || !seen.add(username.toLowerCase())) {
+        if (username == null) {
+          invalid += 1;
+        }
+        continue;
+      }
+      names.add(username);
+    }
+    if (names.isEmpty) {
+      showAppSnack(context, '没有有效的账号名', error: true);
+      return;
+    }
+    setState(() => _addingCategory = category);
+    try {
+      final result = await AppScope.of(context).addUsernamesToCategory(
+        names,
+        category: category,
+      );
+      if (!mounted) {
+        return;
+      }
+      await _loadCategories();
+      if (!mounted) {
+        return;
+      }
+      final skip = invalid > 0 ? '，跳过 $invalid 个无效名' : '';
+      if (result.total == 0) {
+        showAppSnack(context, '没有可添加的账号$skip', error: true);
+        return;
+      }
+      if (result.followed == 0) {
+        showAppSnack(context, '已将 ${result.updated} 人归入「$label」$skip');
+        return;
+      }
+      if (result.updated == 0) {
+        showAppSnack(context, '已添加 ${result.followed} 人到「$label」$skip');
+        return;
+      }
+      showAppSnack(
+        context,
+        '已将 ${result.total} 人加入「$label」（新增关注 ${result.followed}）$skip',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _addingCategory = null);
+      }
+    }
+  }
+
   Future<List<XAccount>> _followedInCategory(String category) async {
     final app = AppScope.of(context);
     final key = category.trim().toLowerCase();
@@ -177,7 +336,8 @@ class _CategoriesPageState extends State<CategoriesPage> {
     if (_exportingAll ||
         _exportingCategory != null ||
         _purging ||
-        _syncingCategory != null) {
+        _syncingCategory != null ||
+        _addingCategory != null) {
       return;
     }
     setState(() => _exportingAll = true);
@@ -225,7 +385,8 @@ class _CategoriesPageState extends State<CategoriesPage> {
     if (_exportingAll ||
         _exportingCategory != null ||
         _purging ||
-        _syncingCategory != null) {
+        _syncingCategory != null ||
+        _addingCategory != null) {
       return;
     }
     final label = XAccount.categoryLabel(category);
@@ -265,7 +426,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
   }
 
   Future<void> _deleteCategory(String category) async {
-    if (_purging || _syncingCategory != null) {
+    if (_purging || _syncingCategory != null || _addingCategory != null) {
       return;
     }
     final app = AppScope.of(context);
@@ -414,7 +575,8 @@ class _CategoriesPageState extends State<CategoriesPage> {
     final busy = _exportingAll ||
         _exportingCategory != null ||
         _purging ||
-        _syncingCategory != null;
+        _syncingCategory != null ||
+        _addingCategory != null;
     if (compact) {
       return _iconAction(
         asset: 'assets/images/export.svg',
@@ -451,13 +613,17 @@ class _CategoriesPageState extends State<CategoriesPage> {
   }
 
   Widget _iconAction({
-    required String asset,
+    String? asset,
+    IconData? icon,
     required String tooltip,
     required VoidCallback? onPressed,
     Color? color,
     bool busy = false,
   }) {
     final enabled = onPressed != null && !busy;
+    final tint = enabled
+        ? (color ?? AppColors.textMuted)
+        : AppColors.textMuted.withValues(alpha: 0.35);
     return IconButton(
       tooltip: tooltip,
       onPressed: enabled ? onPressed : null,
@@ -473,22 +639,19 @@ class _CategoriesPageState extends State<CategoriesPage> {
                 color: AppColors.textMuted,
               ),
             )
-          : SvgPicture.asset(
-              asset,
-              width: 18.w,
-              height: 18.w,
-              colorFilter: ColorFilter.mode(
-                enabled
-                    ? (color ?? AppColors.textMuted)
-                    : AppColors.textMuted.withValues(alpha: 0.35),
-                BlendMode.srcIn,
-              ),
-            ),
+          : icon != null
+              ? Icon(icon, size: 18.w, color: tint)
+              : SvgPicture.asset(
+                  asset!,
+                  width: 18.w,
+                  height: 18.w,
+                  colorFilter: ColorFilter.mode(tint, BlendMode.srcIn),
+                ),
     );
   }
 
   Future<void> _syncCategory(String category) async {
-    if (_syncingCategory != null) {
+    if (_syncingCategory != null || _addingCategory != null) {
       return;
     }
     final label = XAccount.categoryLabel(category);
@@ -741,7 +904,11 @@ class _CategoriesPageState extends State<CategoriesPage> {
     final media = _mediaFor(key);
     final syncing = _syncingCategory == key;
     final exporting = _exportingCategory == key;
-    final busy = _purging || _syncingCategory != null || _exportingAll;
+    final adding = _addingCategory == key;
+    final busy = _purging ||
+        _syncingCategory != null ||
+        _exportingAll ||
+        _addingCategory != null;
     return Column(
       children: [
         InkWell(
@@ -807,6 +974,12 @@ class _CategoriesPageState extends State<CategoriesPage> {
                     ),
                     const Spacer(),
                     _iconAction(
+                      icon: Icons.person_add_alt_1_outlined,
+                      tooltip: adding ? '添加中' : '批量添加',
+                      busy: adding,
+                      onPressed: busy ? null : () => _batchAddAccounts(key),
+                    ),
+                    _iconAction(
                       asset: 'assets/images/export.svg',
                       tooltip: exporting ? '导出中' : '导出',
                       busy: exporting,
@@ -818,9 +991,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
                       asset: 'assets/images/sync.svg',
                       tooltip: syncing ? '同步中' : '同步资料',
                       busy: syncing,
-                      onPressed: _syncingCategory != null
-                          ? null
-                          : () => _syncCategory(key),
+                      onPressed: busy ? null : () => _syncCategory(key),
                     ),
                     _iconAction(
                       asset: 'assets/images/delete.svg',
@@ -847,7 +1018,11 @@ class _CategoriesPageState extends State<CategoriesPage> {
     final media = _mediaFor(key);
     final syncing = _syncingCategory == key;
     final exporting = _exportingCategory == key;
-    final busy = _purging || _syncingCategory != null || _exportingAll;
+    final adding = _addingCategory == key;
+    final busy = _purging ||
+        _syncingCategory != null ||
+        _exportingAll ||
+        _addingCategory != null;
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 8.h),
       child: Column(
@@ -882,6 +1057,12 @@ class _CategoriesPageState extends State<CategoriesPage> {
                 onPressed: () => _viewCategory(key),
               ),
               _iconAction(
+                icon: Icons.person_add_alt_1_outlined,
+                tooltip: adding ? '添加中' : '批量添加',
+                busy: adding,
+                onPressed: busy ? null : () => _batchAddAccounts(key),
+              ),
+              _iconAction(
                 asset: 'assets/images/export.svg',
                 tooltip: exporting ? '导出中' : '导出',
                 busy: exporting,
@@ -899,9 +1080,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
                 asset: 'assets/images/sync.svg',
                 tooltip: syncing ? '同步中' : '同步资料',
                 busy: syncing,
-                onPressed: _syncingCategory != null
-                    ? null
-                    : () => _syncCategory(key),
+                onPressed: busy ? null : () => _syncCategory(key),
               ),
               Switch(
                 value: on,

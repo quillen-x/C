@@ -20,21 +20,15 @@ class XFeedPage extends StatefulWidget {
 }
 
 class _XFeedPageState extends State<XFeedPage> {
-  static const _maxDays = 14;
-
   final ScrollController _scroll = ScrollController();
   Map<String, XAccount> _profiles = <String, XAccount>{};
   List<XPost> _posts = <XPost>[];
   bool _loading = false;
-  bool _loadingMore = false;
   bool _started = false;
   bool _autoLoadScheduled = false;
   bool _noSpecial = false;
-  bool _hasMore = true;
   String? _error;
   int _loadId = 0;
-  int _daysLoaded = 0;
-  DateTime _cursorDay = DateTime.now();
 
   @override
   void didChangeDependencies() {
@@ -60,11 +54,6 @@ class _XFeedPageState extends State<XFeedPage> {
     super.dispose();
   }
 
-  DateTime get _today {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
-  }
-
   Future<void> _load() async {
     if (_loading) {
       return;
@@ -74,12 +63,8 @@ class _XFeedPageState extends State<XFeedPage> {
     setState(() {
       _started = true;
       _loading = true;
-      _loadingMore = false;
       _error = null;
       _noSpecial = false;
-      _hasMore = compact;
-      _daysLoaded = 0;
-      _cursorDay = _today;
       if (!compact || _posts.isEmpty) {
         _posts = <XPost>[];
       }
@@ -104,43 +89,25 @@ class _XFeedPageState extends State<XFeedPage> {
           _posts = <XPost>[];
           _error = null;
           _noSpecial = true;
-          _hasMore = false;
         });
         return;
       }
-      final posts = await app.xFollowingService.fetchDayFeed(
+      final posts = await app.xFollowingService.fetchRecentFeed(
         names,
-        _cursorDay,
-        onProgress: compact
-            ? null
-            : (items, done, total) {
-                if (!mounted || id != _loadId) {
-                  return;
-                }
-                setState(() {
-                  _posts = _withAvatars(items);
-                });
-              },
+        onProgress: (items, done, total) {
+          if (!mounted || id != _loadId) {
+            return;
+          }
+          setState(() {
+            _posts = _withAvatars(items);
+          });
+        },
       );
       if (!mounted || id != _loadId) {
         return;
       }
-      var loaded = posts;
-      var day = _cursorDay;
-      var days = 1;
-      while (compact && loaded.isEmpty && days < 3) {
-        day = day.subtract(const Duration(days: 1));
-        loaded = await app.xFollowingService.fetchDayFeed(names, day);
-        days += 1;
-        if (!mounted || id != _loadId) {
-          return;
-        }
-      }
       setState(() {
-        _posts = _withAvatars(loaded);
-        _cursorDay = day;
-        _daysLoaded = days;
-        _hasMore = compact && days < _maxDays;
+        _posts = _withAvatars(posts);
       });
     } catch (error) {
       if (!mounted || id != _loadId) {
@@ -148,75 +115,12 @@ class _XFeedPageState extends State<XFeedPage> {
       }
       setState(() {
         _error = error.toString();
-        if (_posts.isEmpty) {
-          _hasMore = false;
-        }
       });
     } finally {
       if (mounted && id == _loadId) {
         setState(() => _loading = false);
       }
     }
-  }
-
-  Future<void> _loadMore() async {
-    if (!AppLayout.isCompact(context) ||
-        _loading ||
-        _loadingMore ||
-        !_hasMore ||
-        _daysLoaded >= _maxDays) {
-      return;
-    }
-    final id = _loadId;
-    final nextDay = _cursorDay.subtract(const Duration(days: 1));
-    setState(() => _loadingMore = true);
-    final app = AppScope.of(context);
-    try {
-      final names = await app.visibleUsernames(
-        from: app.settings.xFollowing,
-        specialOnly: true,
-        mediaPage: AppPage.xFeed,
-      );
-      if (names.isEmpty) {
-        if (mounted && id == _loadId) {
-          setState(() {
-            _hasMore = false;
-            _noSpecial = true;
-          });
-        }
-        return;
-      }
-      final posts = await app.xFollowingService.fetchDayFeed(names, nextDay);
-      if (!mounted || id != _loadId) {
-        return;
-      }
-      setState(() {
-        _cursorDay = nextDay;
-        _daysLoaded += 1;
-        _hasMore = _daysLoaded < _maxDays;
-        _mergePosts(_withAvatars(posts));
-      });
-    } catch (error) {
-      if (mounted && id == _loadId) {
-        setState(() => _error = error.toString());
-      }
-    } finally {
-      if (mounted && id == _loadId) {
-        setState(() => _loadingMore = false);
-      }
-    }
-  }
-
-  void _mergePosts(List<XPost> incoming) {
-    final seen = _posts.map((post) => post.id).toSet();
-    final extra = incoming.where((post) => seen.add(post.id));
-    final merged = <XPost>[..._posts, ...extra];
-    merged.sort((a, b) {
-      final at = a.publishedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final bt = b.publishedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return bt.compareTo(at);
-    });
-    _posts = merged;
   }
 
   List<XPost> _withAvatars(List<XPost> posts) {
@@ -263,9 +167,6 @@ class _XFeedPageState extends State<XFeedPage> {
   Widget _wrapPhone(Widget child, {required bool empty}) {
     return PhoneRefreshHost(
       onRefresh: _load,
-      onLoadMore: _loadMore,
-      hasMore: _hasMore,
-      loadingMore: _loadingMore,
       empty: empty,
       child: child,
     );
@@ -329,7 +230,7 @@ class _XFeedPageState extends State<XFeedPage> {
           title: _loading ? '正在加载帖子' : '暂时没有帖子',
           detail: _loading
               ? '正在读取特别关注的人。'
-              : '下拉刷新，或上拉看看更早的内容。',
+              : '只显示近 72 小时内、每人最新 5 条。下拉刷新。',
         ),
       );
     }
@@ -341,8 +242,8 @@ class _XFeedPageState extends State<XFeedPage> {
         columns: compact ? 1 : 3,
         showAuthor: true,
         textSize: 14.sp,
-        loadingMore: compact ? _loadingMore : _loading,
-        hasMore: compact ? _hasMore : _loading,
+        loadingMore: _loading,
+        hasMore: _loading,
         onDownload: _downloadPost,
         padding: AppLayout.mediaHubPadding(context),
       ),
@@ -1836,47 +1737,10 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
   bool _loadingPosts = true;
   bool _loadingMore = false;
   int _pages = 0;
-  bool _followed = false;
-  bool _busy = false;
-  bool _unfollowed = false;
-  String? _targetCategory;
 
   bool get _hasMore {
     final cursor = _postsCursor;
     return cursor != null && cursor.isNotEmpty && _pages < _maxPostPages;
-  }
-
-  List<String> get _categoryOptions {
-    final keys = <String>{};
-    for (final item in AppScope.of(context).settings.categories) {
-      final key = item.trim().toLowerCase();
-      if (key.isNotEmpty) {
-        keys.add(key);
-      }
-    }
-    final current = (_targetCategory ?? _account.category).trim().toLowerCase();
-    if (current.isNotEmpty) {
-      keys.add(current);
-    }
-    final list = keys.toList()..sort();
-    return list;
-  }
-
-  String? get _effectiveCategory {
-    final selected = _targetCategory?.trim().toLowerCase() ?? '';
-    if (selected.isNotEmpty) {
-      return selected;
-    }
-    final accountCat = _account.category.trim().toLowerCase();
-    if (accountCat.isNotEmpty) {
-      return accountCat;
-    }
-    final follow = AppScope.of(context).followCategory.trim().toLowerCase();
-    if (follow.isNotEmpty) {
-      return follow;
-    }
-    final options = _categoryOptions;
-    return options.isEmpty ? null : options.first;
   }
 
   @override
@@ -1907,21 +1771,9 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
   Future<void> _load() async {
     final app = AppScope.of(context);
     final username = widget.account.username;
-    final inSettings = app.settings.xFollowing.any(
-      (item) => item.toLowerCase() == username.toLowerCase(),
-    );
     final cached = await app.accountDb.get(username);
-    if (mounted) {
-      setState(() {
-        _followed = inSettings;
-        if (cached != null) {
-          _account = cached;
-          final key = cached.category.trim().toLowerCase();
-          if (key.isNotEmpty) {
-            _targetCategory = key;
-          }
-        }
-      });
+    if (mounted && cached != null) {
+      setState(() => _account = cached);
     }
     try {
       final profile = await app.xFollowingService.fetchAccount(username);
@@ -2028,161 +1880,6 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
     );
   }
 
-  Future<void> _selectCategory(String key) async {
-    if (_busy) {
-      return;
-    }
-    final next = key.trim().toLowerCase();
-    if (next.isEmpty) {
-      return;
-    }
-    setState(() => _targetCategory = next);
-    if (!_followed) {
-      return;
-    }
-    final app = AppScope.of(context);
-    try {
-      await app.accountDb.updateCategory(widget.account.username, next);
-      await app.ensureCategory(next, show: true);
-      if (!mounted) {
-        return;
-      }
-      setState(() => _account = _account.copyWith(category: next));
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      showAppSnack(context, error.toString(), error: true);
-    }
-  }
-
-  Future<void> _promptNewCategory() async {
-    if (_busy) {
-      return;
-    }
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: AppColors.surface,
-          title: const Text('新增类别'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            style: const TextStyle(color: AppColors.text),
-            cursorColor: AppColors.accent,
-            decoration: const InputDecoration(
-              hintText: '例如 news',
-              hintStyle: TextStyle(color: AppColors.textMuted),
-            ),
-            onSubmitted: (value) => Navigator.pop(dialogContext, value),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, controller.text),
-              child: const Text('确定'),
-            ),
-          ],
-        );
-      },
-    );
-    controller.dispose();
-    if (result == null || !mounted) {
-      return;
-    }
-    final key = result.trim().toLowerCase();
-    if (key.isEmpty) {
-      showAppSnack(context, '请输入分类名', error: true);
-      return;
-    }
-    await AppScope.of(context).ensureCategory(key);
-    if (!mounted) {
-      return;
-    }
-    await _selectCategory(key);
-  }
-
-  Future<void> _followSelf() async {
-    if (_busy || _followed) {
-      return;
-    }
-    var category = _effectiveCategory;
-    if (category == null || category.isEmpty) {
-      await _promptNewCategory();
-      if (!mounted) {
-        return;
-      }
-      category = _targetCategory;
-      if (category == null || category.isEmpty) {
-        return;
-      }
-    }
-    setState(() => _busy = true);
-    try {
-      final saved = await AppScope.of(context).followAndSave(
-        _account,
-        category: category,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _followed = true;
-        _unfollowed = false;
-        _account = saved;
-        _targetCategory = saved.categoryKey;
-      });
-      showAppSnack(
-        context,
-        '已关注 @${saved.username}，已加入「${XAccount.categoryLabel(saved.category)}」',
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      showAppSnack(context, error.toString(), error: true);
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
-  Future<void> _unfollow() async {
-    if (_busy || !_followed) {
-      return;
-    }
-    setState(() => _busy = true);
-    try {
-      final app = AppScope.of(context);
-      await app.unfollowXAccount(widget.account.username);
-      await app.accountDb.delete(widget.account.username);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _followed = false;
-        _unfollowed = true;
-        _account = _account.copyWith(category: '');
-      });
-      showAppSnack(context, '已取消关注 @${widget.account.username}');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      showAppSnack(context, error.toString(), error: true);
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
   Future<void> _openFollowing() async {
     if (_related.isNotEmpty) {
       _showAccountList(
@@ -2254,44 +1951,13 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
           PhoneNavBar(
             title: title,
             centerTitle: true,
-            onBack: () => Navigator.of(context).pop(_unfollowed),
-          )
-        else
-          Padding(
-            padding: EdgeInsets.fromLTRB(8.w, 6.h, 8.w, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Tooltip(
-                    message: '点击复制用户名',
-                    child: InkWell(
-                      onTap: () async {
-                        await copyText(widget.account.username);
-                        if (!context.mounted) {
-                          return;
-                        }
-                        showAppSnack(context, '已复制 @${widget.account.username}');
-                      },
-                      child: Text(
-                        '@${widget.account.username}',
-                        style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.of(context).pop(_unfollowed),
-                  icon: Icon(Icons.close, color: AppColors.textMuted),
-                ),
-              ],
-            ),
+            onBack: () => Navigator.of(context).pop(false),
           ),
         _ProfileHeader(
           account: _account,
           onOpenFollowers: () => _openFollowers(),
           onOpenFollowing: () => _openFollowing(),
         ),
-        _followBar(),
         if (!asPage) Divider(height: 1.h, color: AppColors.border),
         Expanded(
           child: _loadingPosts
@@ -2342,7 +2008,7 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
         if (didPop) {
           return;
         }
-        Navigator.of(context).pop(_unfollowed);
+        Navigator.of(context).pop(false);
       },
       child: asPage
           ? ColoredBox(color: AppColors.bg, child: body)
@@ -2361,106 +2027,6 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
                 child: body,
               ),
             ),
-    );
-  }
-
-  Widget _followBar() {
-    final selected = _effectiveCategory;
-    final options = _categoryOptions;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16.w, 0, 8.w, 12.h),
-      child: Row(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final key in options) ...[
-                    _chip(
-                      label: XAccount.categoryLabel(key),
-                      selected: selected == key,
-                      onTap: () => _selectCategory(key),
-                    ),
-                    SizedBox(width: 6.w),
-                  ],
-                  _chip(
-                    label: '+ 新增',
-                    selected: false,
-                    onTap: _promptNewCategory,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(width: 4.w),
-          if (_busy)
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12.w),
-              child: SizedBox(
-                width: 16.w,
-                height: 16.w,
-                child: CircularProgressIndicator(strokeWidth: 2.w),
-              ),
-            )
-          else if (_followed)
-            TextButton(
-              onPressed: _unfollow,
-              child: Text(
-                '取消关注',
-                style: TextStyle(
-                  color: AppColors.danger,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13.sp,
-                ),
-              ),
-            )
-          else
-            TextButton(
-              onPressed: _followSelf,
-              child: Text(
-                '关注',
-                style: TextStyle(
-                  color: AppColors.accent,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13.sp,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _chip({
-    required String label,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: selected ? AppColors.x : Colors.transparent,
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        onTap: _busy ? null : onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: SizedBox(
-          height: 28.h,
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10.w),
-            child: Center(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12.sp,
-                  height: 1.1,
-                  fontWeight: FontWeight.w700,
-                  color: selected ? Colors.black : AppColors.textMuted,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

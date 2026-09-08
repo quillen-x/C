@@ -435,7 +435,7 @@ class XMedia {
     return '$minutes:${two(seconds)}';
   }
 
-  int get durationSeconds {
+  int get durationSeconds { 
     final raw = duration;
     if (raw <= 0) {
       return 0;
@@ -459,6 +459,8 @@ class XPost {
     this.lang = '',
     this.avatarUrl = '',
     this.authorName = '',
+    this.likes = 0,
+    this.views = 0,
   });
 
   final String id;
@@ -471,6 +473,8 @@ class XPost {
   final String lang;
   final String avatarUrl;
   final String authorName;
+  final int likes;
+  final int views;
 
   String get displayName {
     final name = authorName.trim();
@@ -492,6 +496,8 @@ class XPost {
       lang: lang,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       authorName: authorName ?? this.authorName,
+      likes: likes,
+      views: views,
     );
   }
 

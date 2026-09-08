@@ -158,14 +158,36 @@ class AccountDb {
   }
 
   Future<void> updateCategory(String username, String category) async {
-    final name = username.trim();
-    if (name.isEmpty) {
+    await updateCategoryAll(<String>[username], category);
+  }
+
+  Future<void> updateCategoryAll(
+    Iterable<String> usernames,
+    String category,
+  ) async {
+    final names = usernames
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+    if (names.isEmpty) {
       return;
     }
-    (await _open()).execute(
+    final db = await _open();
+    final stmt = db.prepare(
       'UPDATE accounts SET category = ? WHERE username = ? COLLATE NOCASE',
-      <Object>[category.trim(), name],
     );
+    try {
+      db.execute('BEGIN');
+      for (final name in names) {
+        stmt.execute(<Object>[category.trim(), name]);
+      }
+      db.execute('COMMIT');
+    } catch (_) {
+      db.execute('ROLLBACK');
+      rethrow;
+    } finally {
+      stmt.dispose();
+    }
   }
 
   Future<void> updateLastPostAt(String username, int millis) async {
@@ -247,6 +269,44 @@ class AccountDb {
       db.execute('BEGIN');
       for (final name in names) {
         stmt.execute(<Object>[name]);
+      }
+      db.execute('COMMIT');
+    } catch (_) {
+      db.execute('ROLLBACK');
+      rethrow;
+    } finally {
+      stmt.dispose();
+    }
+  }
+
+  Future<void> insertIfAbsent(List<XAccount> accounts) async {
+    if (accounts.isEmpty) {
+      return;
+    }
+    final db = await _open();
+    final stmt = db.prepare('''
+      INSERT OR IGNORE INTO accounts (
+        username, user_id, name, description, avatar_url, profile_url,
+        followers, following, tweets, protected, updated_at, category, special
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    ''');
+    try {
+      db.execute('BEGIN');
+      for (final account in accounts) {
+        stmt.execute(<Object?>[
+          account.username,
+          account.id,
+          account.name,
+          account.description,
+          account.avatarUrl,
+          account.profileUrl,
+          account.followers,
+          account.following,
+          account.tweets,
+          account.protected ? 1 : 0,
+          account.category,
+          account.special ? 1 : 0,
+        ]);
       }
       db.execute('COMMIT');
     } catch (_) {

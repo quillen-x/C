@@ -8,6 +8,7 @@ import '../widgets/app_layout.dart';
 import '../widgets/app_scope.dart';
 import '../widgets/common.dart';
 import '../widgets/media_viewer.dart';
+import '../widgets/x_feed_widgets.dart';
 import 'x_following_page.dart';
 
 class VideoPage extends StatefulWidget {
@@ -20,16 +21,13 @@ class VideoPage extends StatefulWidget {
 class _VideoPageState extends State<VideoPage> {
   final ScrollController _scroll = ScrollController();
   List<_FollowedVideo> _videos = <_FollowedVideo>[];
-  Map<String, String> _cursors = <String, String>{};
   bool _loading = false;
-  bool _loadingMore = false;
   bool _started = false;
   bool _autoLoadScheduled = false;
   bool _noSpecial = false;
   String? _error;
   String _loadedCategoryKey = '';
-
-  bool get _hasMore => _cursors.isNotEmpty;
+  int _loadId = 0;
 
   String _categoryWatchKey(AppController app) {
     return app.settings.visibleCategories.join('|');
@@ -65,15 +63,14 @@ class _VideoPageState extends State<VideoPage> {
     }
     final compact = AppLayout.isCompact(context);
     final app = AppScope.of(context);
+    final id = ++_loadId;
     setState(() {
       _started = true;
       _loading = true;
-      _loadingMore = false;
       _error = null;
       _noSpecial = false;
       if (!compact || _videos.isEmpty) {
         _videos = <_FollowedVideo>[];
-        _cursors = <String, String>{};
       }
     });
     try {
@@ -84,77 +81,45 @@ class _VideoPageState extends State<VideoPage> {
       final accountMap = await app.accountDb.loadMap();
       final names = accounts.map((account) => account.username).toList();
       if (names.isEmpty) {
-        if (!mounted) {
+        if (!mounted || id != _loadId) {
           return;
         }
         setState(() {
           _videos = <_FollowedVideo>[];
-          _cursors = <String, String>{};
           _error = null;
           _noSpecial = true;
         });
         return;
       }
-      final batch = await app.xFollowingService.fetchVideoFeed(names);
-      if (!mounted) {
+      final batch = await app.xFollowingService.fetchVideoFeed(
+        names,
+        onProgress: (items, done, total) {
+          if (!mounted || id != _loadId) {
+            return;
+          }
+          setState(() {
+            _videos = _flatten(items, accountMap: accountMap);
+            _loadedCategoryKey = _categoryWatchKey(app);
+          });
+        },
+      );
+      if (!mounted || id != _loadId) {
         return;
       }
       setState(() {
         _videos = _flatten(batch.posts, accountMap: accountMap);
-        _cursors = compact ? batch.cursors : <String, String>{};
         _loadedCategoryKey = _categoryWatchKey(app);
       });
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || id != _loadId) {
         return;
       }
       setState(() {
         _error = error.toString();
-        if (_videos.isEmpty) {
-          _cursors = <String, String>{};
-        }
       });
     } finally {
-      if (mounted) {
+      if (mounted && id == _loadId) {
         setState(() => _loading = false);
-      }
-    }
-  }
-
-  Future<void> _loadMore() async {
-    if (!AppLayout.isCompact(context) || _loading || _loadingMore || !_hasMore) {
-      return;
-    }
-    setState(() => _loadingMore = true);
-    final app = AppScope.of(context);
-    try {
-      final accounts = await app.visibleAccounts(
-        specialOnly: true,
-        mediaPage: AppPage.x,
-      );
-      final accountMap = await app.accountDb.loadMap();
-      final names = accounts.map((account) => account.username).toList();
-      final batch = await app.xFollowingService.fetchVideoFeed(
-        names,
-        cursors: _cursors,
-      );
-      if (!mounted) {
-        return;
-      }
-      final seen = _videos.map((item) => '${item.post.id}:${item.index}').toSet();
-      final extra = _flatten(batch.posts, accountMap: accountMap)
-          .where((item) => seen.add('${item.post.id}:${item.index}'));
-      setState(() {
-        _videos = <_FollowedVideo>[..._videos, ...extra];
-        _cursors = batch.cursors;
-      });
-    } catch (error) {
-      if (mounted) {
-        setState(() => _error = error.toString());
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _loadingMore = false);
       }
     }
   }
@@ -175,7 +140,17 @@ class _VideoPageState extends State<VideoPage> {
         videos.add(_FollowedVideo(post: post, media: media, index: index));
       }
     }
-    return videos;
+    videos.sort((a, b) => b.post.likes.compareTo(a.post.likes));
+    final counts = <String, int>{};
+    return videos.where((item) {
+      final key = item.post.username.toLowerCase();
+      final n = counts[key] ?? 0;
+      if (n >= 5) {
+        return false;
+      }
+      counts[key] = n + 1;
+      return true;
+    }).toList();
   }
 
   Future<void> _openProfile(String username) async {
@@ -260,9 +235,6 @@ class _VideoPageState extends State<VideoPage> {
   Widget _wrapPhone(Widget child, {required bool empty}) {
     return PhoneRefreshHost(
       onRefresh: _load,
-      onLoadMore: _loadMore,
-      hasMore: _hasMore,
-      loadingMore: _loadingMore,
       empty: empty,
       child: child,
     );
@@ -315,7 +287,7 @@ class _VideoPageState extends State<VideoPage> {
         const EmptyHint(
           icon: Icons.smart_display_outlined,
           title: '暂时没有视频',
-          detail: '这里只显示已打开分类里特别关注的账号视频。',
+          detail: '这里只显示已打开分类里特别关注的账号、近 72 小时内最新 5 条视频。',
         ),
       );
     }
@@ -347,7 +319,7 @@ class _VideoPageState extends State<VideoPage> {
               ),
             ),
           ),
-          if (_loadingMore)
+          if (_loading)
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(0, 4.h, 0, 16.h),
@@ -490,24 +462,43 @@ class _VideoTile extends StatelessWidget {
               ),
               child: Padding(
                 padding: EdgeInsets.fromLTRB(10.w, 18.h, 10.w, 10.h),
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    onTap: onOpenProfile,
-                    behavior: HitTestBehavior.opaque,
-                    child: Text(
-                      item.post.displayName.isEmpty
-                          ? '@${item.post.username}'
-                          : item.post.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12.sp,
-                        fontWeight: FontWeight.w700,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          onTap: onOpenProfile,
+                          behavior: HitTestBehavior.opaque,
+                          child: Text(
+                            item.post.displayName.isEmpty
+                                ? '@${item.post.username}'
+                                : item.post.displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12.sp,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    if (item.post.likes > 0) ...[
+                      SizedBox(width: 8.w),
+                      Icon(Icons.favorite_border, size: 13.sp, color: Colors.white),
+                      SizedBox(width: 4.w),
+                      Text(
+                        formatCount(item.post.likes),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11.sp,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),

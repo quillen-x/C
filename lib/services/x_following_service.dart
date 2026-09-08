@@ -672,127 +672,154 @@ class XFollowingService {
     return posts;
   }
 
+  static const recentPerUser = 5;
+  static const recentMaxAge = Duration(hours: 72);
+  static const _recentBatchSize = 8;
+
+  bool _isRecent(XPost post) {
+    final time = post.publishedAt;
+    if (time == null) {
+      return false;
+    }
+    return !time.isBefore(DateTime.now().subtract(recentMaxAge));
+  }
+
+  int _compareByLikes(XPost a, XPost b) {
+    final likes = b.likes.compareTo(a.likes);
+    if (likes != 0) {
+      return likes;
+    }
+    final at = a.publishedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final bt = b.publishedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return bt.compareTo(at);
+  }
+
+  Future<List<XPost>> fetchRecentFeed(
+    List<String> usernames, {
+    bool media = false,
+    bool Function(XPost post)? keep,
+    void Function(List<XPost> posts, int done, int total)? onProgress,
+  }) async {
+    if (usernames.isEmpty) {
+      return <XPost>[];
+    }
+    final posts = <XPost>[];
+    final seen = <String>{};
+    final total = usernames.length;
+    for (var start = 0; start < total; start += _recentBatchSize) {
+      final end = start + _recentBatchSize > total ? total : start + _recentBatchSize;
+      final chunk = usernames.sublist(start, end);
+      final results = await Future.wait(
+        chunk.map((name) async {
+          try {
+            return await _fetchRecentUserPosts(
+              name,
+              media: media,
+              keep: keep,
+            );
+          } catch (_) {
+            return <XPost>[];
+          }
+        }),
+      );
+      for (final list in results) {
+        for (final post in list) {
+          if (seen.add(post.id)) {
+            posts.add(post);
+          }
+        }
+      }
+      posts.sort(_compareByLikes);
+      onProgress?.call(List<XPost>.from(posts), end, total);
+    }
+    return posts;
+  }
+
+  Future<List<XPost>> _fetchRecentUserPosts(
+    String username, {
+    required bool media,
+    bool Function(XPost post)? keep,
+  }) async {
+    final page = media
+        ? await _fetchMediaPosts(
+            username,
+            keep: keep ?? (_) => true,
+            count: recentPerUser,
+          )
+        : await fetchPostsPage(username, count: recentPerUser);
+    return page.posts
+        .where((post) {
+          if (!_isRecent(post)) {
+            return false;
+          }
+          if (keep != null && !keep(post)) {
+            return false;
+          }
+          return true;
+        })
+        .take(recentPerUser)
+        .toList();
+  }
+
   Future<XFeedBatch> fetchVideoFeed(
     List<String> usernames, {
-    Map<String, String>? cursors,
-  }) {
-    return _fetchMediaFeed(
-      usernames,
-      keep: (post) => post.hasVideo,
-      cursors: cursors,
+    void Function(List<XPost> posts, int done, int total)? onProgress,
+  }) async {
+    return XFeedBatch(
+      posts: await fetchRecentFeed(
+        usernames,
+        media: true,
+        keep: (post) => post.hasVideo,
+        onProgress: onProgress,
+      ),
     );
   }
 
   Future<XFeedBatch> fetchPhotoFeed(
     List<String> usernames, {
-    Map<String, String>? cursors,
-  }) {
-    return _fetchMediaFeed(
-      usernames,
-      keep: (post) => post.hasPhotos,
-      cursors: cursors,
-    );
-  }
-
-  Future<XFeedBatch> _fetchMediaFeed(
-    List<String> usernames, {
-    required bool Function(XPost post) keep,
-    Map<String, String>? cursors,
+    void Function(List<XPost> posts, int done, int total)? onProgress,
   }) async {
-    if (usernames.isEmpty) {
-      return const XFeedBatch();
-    }
-    final more = cursors != null;
-    final names = more
-        ? usernames.where((name) => (cursors[name] ?? '').isNotEmpty).toList()
-        : usernames;
-    if (names.isEmpty) {
-      return const XFeedBatch();
-    }
-    final pages = more ? 1 : (names.length > 12 ? 1 : 2);
-    final results = await Future.wait(
-      names.map(
-        (name) => _fetchMediaPosts(
-          name,
-          keep: keep,
-          pages: pages,
-          cursor: cursors?[name],
-        ),
+    return XFeedBatch(
+      posts: await fetchRecentFeed(
+        usernames,
+        media: true,
+        keep: (post) => post.hasPhotos,
+        onProgress: onProgress,
       ),
-      eagerError: false,
     );
-    final posts = <XPost>[];
-    final nextCursors = <String, String>{};
-    final seen = <String>{};
-    for (var i = 0; i < names.length; i++) {
-      final result = results[i];
-      for (final post in result.posts) {
-        if (keep(post) && seen.add(post.id)) {
-          posts.add(post);
-        }
-      }
-      final cursor = (result.cursor ?? '').trim();
-      if (cursor.isNotEmpty) {
-        nextCursors[names[i]] = cursor;
-      }
-    }
-    posts.sort((a, b) {
-      final at = a.publishedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final bt = b.publishedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return bt.compareTo(at);
-    });
-    if (!more && posts.length > 120) {
-      return XFeedBatch(posts: posts.sublist(0, 120), cursors: nextCursors);
-    }
-    return XFeedBatch(posts: posts, cursors: nextCursors);
   }
 
   Future<XPostPage> _fetchMediaPosts(
     String username, {
     required bool Function(XPost post) keep,
-    int pages = 1,
-    String? cursor,
+    int count = recentPerUser,
   }) async {
     try {
       final posts = <XPost>[];
       final seen = <String>{};
-      var current = (cursor ?? '').trim();
-      String? nextCursor;
-      for (var page = 0; page < pages; page++) {
-        final query = _query(<String, String>{'count': '50'});
-        if (current.isNotEmpty) {
-          query['cursor'] = current;
-        }
-        final uri = Uri.parse(
-          'https://api.fxtwitter.com/2/profile/${Uri.encodeComponent(username)}/media',
-        ).replace(queryParameters: query);
-        final json = jsonDecode(await _getRaw(uri)) as Map<String, dynamic>;
-        if ((json['code'] as num?)?.toInt() != 200) {
-          nextCursor = null;
-          break;
-        }
+      final query = _query(<String, String>{
+        'count': '${count.clamp(1, 100)}',
+      });
+      final uri = Uri.parse(
+        'https://api.fxtwitter.com/2/profile/${Uri.encodeComponent(username)}/media',
+      ).replace(queryParameters: query);
+      final json = jsonDecode(await _getRaw(uri)) as Map<String, dynamic>;
+      if ((json['code'] as num?)?.toInt() == 200) {
         for (final post in _parseStatusList(json['results'], username)) {
           if (keep(post) && seen.add(post.id)) {
             posts.add(post);
           }
         }
-        final next = _cursorBottom(json['cursor']);
-        if (next == null || next == current) {
-          nextCursor = null;
-          break;
+        if (posts.isNotEmpty) {
+          return XPostPage(posts: posts);
         }
-        nextCursor = next;
-        current = next;
-      }
-      if (posts.isNotEmpty) {
-        return XPostPage(posts: posts, cursor: nextCursor);
-      }
-      if ((cursor ?? '').trim().isNotEmpty) {
-        return XPostPage(posts: const <XPost>[], cursor: nextCursor);
       }
     } catch (_) {}
     return XPostPage(
-      posts: (await fetchPosts(username)).where(keep).toList(),
+      posts: (await fetchPostsPage(username, count: count))
+          .posts
+          .where(keep)
+          .toList(),
     );
   }
 
@@ -853,6 +880,8 @@ class XFollowingService {
         lang: '${map['lang'] ?? ''}'.trim(),
         avatarUrl: avatar,
         authorName: name,
+        likes: (map['likes'] as num?)?.toInt() ?? 0,
+        views: (map['views'] as num?)?.toInt() ?? 0,
       ));
     }
     return posts;

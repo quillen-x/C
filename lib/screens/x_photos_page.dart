@@ -7,6 +7,7 @@ import '../widgets/app_layout.dart';
 import '../widgets/app_scope.dart';
 import '../widgets/common.dart';
 import '../widgets/media_viewer.dart';
+import '../widgets/x_feed_widgets.dart';
 import 'x_following_page.dart';
 
 class XPhotosPage extends StatefulWidget {
@@ -19,15 +20,12 @@ class XPhotosPage extends StatefulWidget {
 class _XPhotosPageState extends State<XPhotosPage> {
   final ScrollController _scroll = ScrollController();
   List<_FollowedPhoto> _photos = <_FollowedPhoto>[];
-  Map<String, String> _cursors = <String, String>{};
   bool _loading = false;
-  bool _loadingMore = false;
   bool _started = false;
   bool _autoLoadScheduled = false;
   bool _noSpecial = false;
   String? _error;
-
-  bool get _hasMore => _cursors.isNotEmpty;
+  int _loadId = 0;
 
   @override
   void didChangeDependencies() {
@@ -58,15 +56,14 @@ class _XPhotosPageState extends State<XPhotosPage> {
       return;
     }
     final compact = AppLayout.isCompact(context);
+    final id = ++_loadId;
     setState(() {
       _started = true;
       _loading = true;
-      _loadingMore = false;
       _error = null;
       _noSpecial = false;
       if (!compact || _photos.isEmpty) {
         _photos = <_FollowedPhoto>[];
-        _cursors = <String, String>{};
       }
     });
     final app = AppScope.of(context);
@@ -75,84 +72,65 @@ class _XPhotosPageState extends State<XPhotosPage> {
       specialOnly: true,
       mediaPage: AppPage.xPhotos,
     );
+    final accountMap = await app.accountDb.loadMap();
     try {
       if (names.isEmpty) {
-        if (!mounted) {
+        if (!mounted || id != _loadId) {
           return;
         }
         setState(() {
           _photos = <_FollowedPhoto>[];
-          _cursors = <String, String>{};
           _error = null;
           _noSpecial = true;
         });
         return;
       }
-      final batch = await app.xFollowingService.fetchPhotoFeed(names);
-      if (!mounted) {
+      final batch = await app.xFollowingService.fetchPhotoFeed(
+        names,
+        onProgress: (items, done, total) {
+          if (!mounted || id != _loadId) {
+            return;
+          }
+          setState(() {
+            _photos = _flatten(items, accountMap: accountMap);
+          });
+        },
+      );
+      if (!mounted || id != _loadId) {
         return;
       }
       setState(() {
-        _photos = _flatten(batch.posts);
-        _cursors = compact ? batch.cursors : <String, String>{};
+        _photos = _flatten(batch.posts, accountMap: accountMap);
       });
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || id != _loadId) {
         return;
       }
       setState(() {
         _error = error.toString();
-        if (_photos.isEmpty) {
-          _cursors = <String, String>{};
-        }
       });
     } finally {
-      if (mounted) {
+      if (mounted && id == _loadId) {
         setState(() => _loading = false);
       }
     }
   }
 
-  Future<void> _loadMore() async {
-    if (!AppLayout.isCompact(context) || _loading || _loadingMore || !_hasMore) {
-      return;
-    }
-    setState(() => _loadingMore = true);
-    final app = AppScope.of(context);
-    try {
-      final names = await app.visibleUsernames(
-        from: app.settings.xFollowing,
-        specialOnly: true,
-        mediaPage: AppPage.xPhotos,
-      );
-      final batch = await app.xFollowingService.fetchPhotoFeed(
-        names,
-        cursors: _cursors,
-      );
-      if (!mounted) {
-        return;
-      }
-      final seen = _photos.map((item) => '${item.post.id}:${item.index}').toSet();
-      final extra = _flatten(batch.posts)
-          .where((item) => seen.add('${item.post.id}:${item.index}'));
-      setState(() {
-        _photos = <_FollowedPhoto>[..._photos, ...extra];
-        _cursors = batch.cursors;
-      });
-    } catch (error) {
-      if (mounted) {
-        setState(() => _error = error.toString());
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _loadingMore = false);
-      }
-    }
-  }
-
-  List<_FollowedPhoto> _flatten(List<XPost> posts) {
+  List<_FollowedPhoto> _flatten(
+    List<XPost> posts, {
+    Map<String, XAccount> accountMap = const <String, XAccount>{},
+  }) {
     final photos = <_FollowedPhoto>[];
-    for (final post in posts) {
+    for (final raw in posts) {
+      var post = raw;
+      final account = accountMap[post.username.toLowerCase()];
+      if (account != null &&
+          (post.avatarUrl.isEmpty || post.authorName.isEmpty)) {
+        post = post.copyWith(
+          avatarUrl: post.avatarUrl.isNotEmpty ? post.avatarUrl : account.avatarUrl,
+          authorName: post.authorName.isNotEmpty ? post.authorName : account.name,
+        );
+      }
       for (var index = 0; index < post.media.length; index++) {
         final media = post.media[index];
         if (media.kind == XMediaKind.photo) {
@@ -160,7 +138,17 @@ class _XPhotosPageState extends State<XPhotosPage> {
         }
       }
     }
-    return photos;
+    photos.sort((a, b) => b.post.likes.compareTo(a.post.likes));
+    final counts = <String, int>{};
+    return photos.where((item) {
+      final key = item.post.username.toLowerCase();
+      final n = counts[key] ?? 0;
+      if (n >= 5) {
+        return false;
+      }
+      counts[key] = n + 1;
+      return true;
+    }).toList();
   }
 
   Future<void> _openProfile(String username) async {
@@ -216,9 +204,6 @@ class _XPhotosPageState extends State<XPhotosPage> {
   Widget _wrapPhone(Widget child, {required bool empty}) {
     return PhoneRefreshHost(
       onRefresh: _load,
-      onLoadMore: _loadMore,
-      hasMore: _hasMore,
-      loadingMore: _loadingMore,
       empty: empty,
       child: child,
     );
@@ -280,7 +265,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
         const EmptyHint(
           icon: Icons.photo_outlined,
           title: '暂时没有图片',
-          detail: '特别关注的人最近没有发图片。下拉刷新，或到「关注」里再特别关注几个账号。',
+          detail: '特别关注的人近 72 小时内没有发图片。下拉刷新。',
         ),
       );
     }
@@ -290,7 +275,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
         photos: _photos,
         controller: _scroll,
         columns: _columns(context),
-        loadingMore: _loadingMore,
+        loadingMore: _loading,
         onOpenProfile: _openProfile,
       ),
     );
@@ -414,7 +399,9 @@ class _PhotoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = item.media.listUrl;
-    final extra = item.post.photoCount > 1 ? item.post.photoCount : 0;
+    final name = item.post.displayName.isEmpty
+        ? '@${item.post.username}'
+        : item.post.displayName;
     return Material(
       color: AppColors.surfaceAlt,
       borderRadius: BorderRadius.circular(12.w),
@@ -428,8 +415,8 @@ class _PhotoTile extends StatelessWidget {
               child: InkWell(
                 onTap: () => showPostMedia(
                   context,
-                  item.post.media,
-                  item.index,
+                  <XMedia>[item.media],
+                  0,
                   username: item.post.username,
                   displayName: item.post.displayName,
                 ),
@@ -447,28 +434,6 @@ class _PhotoTile extends StatelessWidget {
                 ),
               ),
             ),
-            if (extra > 1)
-              Positioned(
-                top: 8.h,
-                right: 8.w,
-                child: IgnorePointer(
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
-                    decoration: BoxDecoration(
-                      color: const Color(0xCC000000),
-                      borderRadius: BorderRadius.circular(6.w),
-                    ),
-                    child: Text(
-                      '$extra',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11.sp,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
             Positioned(
               left: 0,
               right: 0,
@@ -483,24 +448,49 @@ class _PhotoTile extends StatelessWidget {
                 ),
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(10.w, 18.h, 10.w, 10.h),
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: onOpenProfile,
-                      behavior: HitTestBehavior.opaque,
-                      child: Text(
-                        item.post.displayName.isEmpty
-                            ? '@${item.post.username}'
-                            : item.post.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.w700,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: onOpenProfile,
+                            behavior: HitTestBehavior.opaque,
+                            child: Row(
+                              children: [
+                                XAvatar(url: item.post.avatarUrl, size: 18),
+                                SizedBox(width: 6.w),
+                                Expanded(
+                                  child: Text(
+                                    name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12.sp,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                      if (item.post.likes > 0) ...[
+                        SizedBox(width: 8.w),
+                        Icon(Icons.favorite_border, size: 13.sp, color: Colors.white),
+                        SizedBox(width: 4.w),
+                        Text(
+                          formatCount(item.post.likes),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11.sp,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),

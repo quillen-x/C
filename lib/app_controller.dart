@@ -155,6 +155,70 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  Future<CategoryAssignResult> addUsernamesToCategory(
+    Iterable<String> usernames, {
+    required String category,
+  }) async {
+    final key = category.trim().toLowerCase();
+    await ensureCategory(key, show: key.isNotEmpty);
+    final names = <String>[];
+    final seen = <String>{};
+    for (final raw in usernames) {
+      final username = XFollowingService.extractUsername(raw);
+      if (username == null || !seen.add(username.toLowerCase())) {
+        continue;
+      }
+      names.add(username);
+    }
+    if (names.isEmpty) {
+      return CategoryAssignResult(followed: 0, updated: 0, category: key);
+    }
+    final following = settings.xFollowing
+        .map((name) => name.trim().toLowerCase())
+        .toSet();
+    final stored = await accountDb.loadMap();
+    final pending = <XAccount>[];
+    final existing = <String>[];
+    for (final name in names) {
+      final lower = name.toLowerCase();
+      if (following.contains(lower) && stored.containsKey(lower)) {
+        existing.add(name);
+        continue;
+      }
+      pending.add(
+        XAccount(
+          username: name,
+          name: name,
+          description: '',
+          avatarUrl: '',
+          profileUrl: 'https://x.com/$name',
+          followers: 0,
+          following: 0,
+          tweets: 0,
+          category: key,
+        ),
+      );
+    }
+    if (pending.isNotEmpty) {
+      await followXAccounts(
+        pending.map((account) => account.username).toList(),
+      );
+      await accountDb.insertIfAbsent(pending);
+    }
+    await accountDb.updateCategoryAll(
+      <String>[
+        ...pending.map((account) => account.username),
+        ...existing,
+      ],
+      key,
+    );
+    return CategoryAssignResult(
+      followed: pending.length,
+      updated: existing.length,
+      category: key,
+    );
+  }
+
   Future<ProfileSyncResult> syncFollowingProfiles({
     required String category,
     required bool Function() isCanceled,

@@ -192,6 +192,8 @@ class _CommentsDialogState extends State<_CommentsDialog> {
       lang: reply.lang,
       avatarUrl: reply.avatarUrl,
       authorName: reply.authorName,
+      likes: reply.likes,
+      views: reply.views,
     );
   }
 
@@ -337,10 +339,10 @@ class _CommentsDialogState extends State<_CommentsDialog> {
               text: post.displayText,
             ),
           ],
-          if (post.publishedAt != null) ...[
+          if (post.publishedAt != null || post.likes > 0 || post.views > 0) ...[
             SizedBox(height: 8.h),
-            Text(
-              formatPostTime(post.publishedAt!),
+            _PostStatsRow(
+              post: post,
               style: TextStyle(color: AppColors.textMuted, fontSize: 11.sp),
             ),
           ],
@@ -966,11 +968,15 @@ class PostCard extends StatelessWidget {
                   ],
                 ),
               ],
-              if (timeLabel != null && !timeOnNameRow) ...[
+              if ((timeLabel != null && !timeOnNameRow) ||
+                  post.likes > 0 ||
+                  post.views > 0) ...[
                 SizedBox(height: dense ? 6.h : 8.h),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(timeLabel, style: timeStyle),
+                _PostStatsRow(
+                  post: post,
+                  style: timeStyle,
+                  showTime: !timeOnNameRow,
+                  timeLabel: timeLabel,
                 ),
               ],
             ],
@@ -1415,6 +1421,84 @@ class _MediaThumb extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _PostStatsRow extends StatelessWidget {
+  const _PostStatsRow({
+    required this.post,
+    required this.style,
+    this.timeLabel,
+    this.showTime = true,
+  });
+
+  final XPost post;
+  final TextStyle style;
+  final String? timeLabel;
+  final bool showTime;
+
+  @override
+  Widget build(BuildContext context) {
+    final time = !showTime
+        ? null
+        : (timeLabel ??
+            (post.publishedAt == null ? null : formatPostTime(post.publishedAt!)));
+    return Row(
+      children: [
+        Expanded(
+          child: PostStatBadges(post: post, color: style.color ?? AppColors.textMuted, fontSize: style.fontSize),
+        ),
+        if (time != null) Text(time, style: style),
+      ],
+    );
+  }
+}
+
+class PostStatBadges extends StatelessWidget {
+  const PostStatBadges({
+    super.key,
+    required this.post,
+    this.color = AppColors.textMuted,
+    this.fontSize,
+  });
+
+  final XPost post;
+  final Color color;
+  final double? fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = fontSize ?? 11.sp;
+    final items = <Widget>[];
+    void add(IconData icon, int value) {
+      if (value <= 0) {
+        return;
+      }
+      items.add(
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: size + 2, color: color),
+            SizedBox(width: 4.w),
+            Text(formatCount(value), style: TextStyle(color: color, fontSize: size, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      );
+    }
+
+    add(Icons.favorite_border, post.likes);
+    add(Icons.visibility_outlined, post.views);
+    if (items.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Row(
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) SizedBox(width: 12.w),
+          items[i],
+        ],
+      ],
     );
   }
 }
