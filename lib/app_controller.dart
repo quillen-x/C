@@ -12,6 +12,8 @@ import 'services/x_video_service.dart';
 
 class AppController extends ChangeNotifier {
   static const _sexInactiveDays = 180;
+  static const sexVideoMinDurationSeconds = 120;
+  static const sexVideoMaxDurationSeconds = 1800;
 
   AppSettings settings = AppSettings();
   final List<DownloadTask> tasks = <DownloadTask>[];
@@ -327,6 +329,44 @@ class AppController extends ChangeNotifier {
     return !DateTime.fromMillisecondsSinceEpoch(last).isBefore(cutoff);
   }
 
+  bool isSexOnlyCategoryView() {
+    final visible = settings.visibleCategories
+        .map((item) => item.trim().toLowerCase())
+        .where((item) => item.isNotEmpty)
+        .toList();
+    return visible.length == 1 && visible.first == 'sex';
+  }
+
+  bool shouldApplySexVideoDurationFilter(XAccount? account) {
+    if (!settings.showsCategory('sex')) {
+      return false;
+    }
+    if (isSexOnlyCategoryView()) {
+      return true;
+    }
+    return account?.categoryKey == 'sex';
+  }
+
+  int mediaDurationSeconds(XMedia media) => media.durationSeconds;
+
+  bool allowsVideoTabMedia(XAccount? account, XMedia media) {
+    if (!media.isVideo) {
+      return false;
+    }
+    if (!shouldApplySexVideoDurationFilter(account)) {
+      return true;
+    }
+    if (media.kind != XMediaKind.video) {
+      return false;
+    }
+    final seconds = mediaDurationSeconds(media);
+    if (seconds <= 0) {
+      return false;
+    }
+    return seconds >= sexVideoMinDurationSeconds &&
+        seconds <= sexVideoMaxDurationSeconds;
+  }
+
   Future<void> recordLastPostAt(String username, List<XPost> posts) async {
     final latest = XPost.latestMillis(posts);
     if (latest <= 0) {
@@ -497,6 +537,123 @@ class AppController extends ChangeNotifier {
     return null;
   }
 
+  DownloadTask? findExistingDownload(String sourceUrl) {
+    final source = sourceUrl.trim();
+    if (source.isEmpty) {
+      return null;
+    }
+    for (final task in tasks) {
+      if (task.sourceUrl != source || task.status != TaskStatus.done) {
+        continue;
+      }
+      final path = task.savePath.trim();
+      if (path.isEmpty || isDownloadHidden(path)) {
+        continue;
+      }
+      if (File(path).existsSync()) {
+        return task;
+      }
+    }
+    return null;
+  }
+
+  Future<String?> findExistingPostVideoPath(String postUrl) async {
+    final id = XVideoService.extractStatusId(postUrl);
+    if (id == null) {
+      return null;
+    }
+    final marker = '[$id].mp4';
+    final roots = <String>{
+      settings.downloadDir,
+      '${settings.downloadDir}/MediaDownloader',
+    };
+    for (final root in roots) {
+      final dir = Directory(root);
+      if (!await dir.exists()) {
+        continue;
+      }
+      await for (final entity in dir.list(recursive: true, followLinks: false)) {
+        if (entity is! File) {
+          continue;
+        }
+        final name = entity.uri.pathSegments.isEmpty
+            ? entity.path.split(RegExp(r'[\\/]')).last
+            : entity.uri.pathSegments.last;
+        if (!name.contains(marker)) {
+          continue;
+        }
+        if (await entity.length() > 0) {
+          return entity.path;
+        }
+      }
+    }
+    return null;
+  }
+
+  DownloadTask reuseDownload({
+    required String title,
+    required String sourceUrl,
+    required String savePath,
+  }) {
+    final path = savePath.trim();
+    final source = sourceUrl.trim();
+    final cached = findExistingDownload(source);
+    if (cached != null) {
+      cached.alreadyDownloaded = true;
+      return cached;
+    }
+    final task = DownloadTask(
+      id: IoHelpers.uniqueId(),
+      kind: DownloadKind.x,
+      title: title.trim().isEmpty ? path : title.trim(),
+      sourceUrl: source,
+      status: TaskStatus.done,
+      progress: 1,
+      savePath: path,
+    )..alreadyDownloaded = true;
+    tasks.insert(0, task);
+    notifyListeners();
+    return task;
+  }
+
+  DownloadTask? _skipIfAlreadyDownloaded({
+    required String sourceUrl,
+    required String title,
+  }) {
+    final source = sourceUrl.trim();
+    if (source.isEmpty) {
+      return null;
+    }
+    final active = activeTaskFor(source);
+    if (active != null) {
+      return active;
+    }
+    final existing = findExistingDownload(source);
+    if (existing != null) {
+      existing.alreadyDownloaded = true;
+      return existing;
+    }
+    return null;
+  }
+
+  Future<DownloadTask?> _skipPostIfAlreadyDownloaded({
+    required String sourceUrl,
+    required String title,
+  }) async {
+    final skipped = _skipIfAlreadyDownloaded(
+      sourceUrl: sourceUrl,
+      title: title,
+    );
+    if (skipped != null) {
+      return skipped;
+    }
+    final path = await findExistingPostVideoPath(sourceUrl);
+    if (path == null) {
+      return null;
+    }
+    return reuseDownload(title: title, sourceUrl: sourceUrl, savePath: path);
+  }
+
   Future<DownloadTask> downloadDirectMedia({
     required String url,
     String username = '',
@@ -507,15 +664,15 @@ class AppController extends ChangeNotifier {
     if (source.isEmpty) {
       throw StateError('没有可下载的地址');
     }
-    final existing = activeTaskFor(source);
-    if (existing != null) {
-      return existing;
-    }
     final user = username.trim().replaceFirst(RegExp(r'^@'), '');
     var name = displayName.trim();
     final title = name.isNotEmpty
         ? (user.isEmpty ? name : '$name @$user')
         : (user.isEmpty ? '视频' : '@$user');
+    final skipped = _skipIfAlreadyDownloaded(sourceUrl: source, title: title);
+    if (skipped != null) {
+      return skipped;
+    }
     final task = enqueue(title: title, sourceUrl: source);
     return _run(task, () async {
       var category = '未分类';
@@ -562,6 +719,13 @@ class AppController extends ChangeNotifier {
     required String title,
     required VideoQuality quality,
   }) async {
+    final skipped = await _skipPostIfAlreadyDownloaded(
+      sourceUrl: url,
+      title: title,
+    );
+    if (skipped != null) {
+      return skipped;
+    }
     final task = enqueue(title: title, sourceUrl: url);
     return _run(task, () {
       return xVideo.download(

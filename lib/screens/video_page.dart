@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../app_controller.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/app_layout.dart';
@@ -26,8 +27,13 @@ class _VideoPageState extends State<VideoPage> {
   bool _autoLoadScheduled = false;
   bool _noSpecial = false;
   String? _error;
+  String _loadedCategoryKey = '';
 
   bool get _hasMore => _cursors.isNotEmpty;
+
+  String _categoryWatchKey(AppController app) {
+    return app.settings.visibleCategories.join('|');
+  }
 
   @override
   void didChangeDependencies() {
@@ -75,6 +81,7 @@ class _VideoPageState extends State<VideoPage> {
         specialOnly: true,
         mediaPage: AppPage.x,
       );
+      final accountMap = await app.accountDb.loadMap();
       final names = accounts.map((account) => account.username).toList();
       if (names.isEmpty) {
         if (!mounted) {
@@ -93,8 +100,9 @@ class _VideoPageState extends State<VideoPage> {
         return;
       }
       setState(() {
-        _videos = _flatten(batch.posts);
+        _videos = _flatten(batch.posts, accountMap: accountMap);
         _cursors = compact ? batch.cursors : <String, String>{};
+        _loadedCategoryKey = _categoryWatchKey(app);
       });
     } catch (error) {
       if (!mounted) {
@@ -124,6 +132,7 @@ class _VideoPageState extends State<VideoPage> {
         specialOnly: true,
         mediaPage: AppPage.x,
       );
+      final accountMap = await app.accountDb.loadMap();
       final names = accounts.map((account) => account.username).toList();
       final batch = await app.xFollowingService.fetchVideoFeed(
         names,
@@ -133,7 +142,7 @@ class _VideoPageState extends State<VideoPage> {
         return;
       }
       final seen = _videos.map((item) => '${item.post.id}:${item.index}').toSet();
-      final extra = _flatten(batch.posts)
+      final extra = _flatten(batch.posts, accountMap: accountMap)
           .where((item) => seen.add('${item.post.id}:${item.index}'));
       setState(() {
         _videos = <_FollowedVideo>[..._videos, ...extra];
@@ -150,14 +159,20 @@ class _VideoPageState extends State<VideoPage> {
     }
   }
 
-  List<_FollowedVideo> _flatten(List<XPost> posts) {
+  List<_FollowedVideo> _flatten(
+    List<XPost> posts, {
+    required Map<String, XAccount> accountMap,
+  }) {
+    final app = AppScope.of(context);
     final videos = <_FollowedVideo>[];
     for (final post in posts) {
+      final account = accountMap[post.username.toLowerCase()];
       for (var index = 0; index < post.media.length; index++) {
         final media = post.media[index];
-        if (media.isVideo) {
-          videos.add(_FollowedVideo(post: post, media: media, index: index));
+        if (!app.allowsVideoTabMedia(account, media)) {
+          continue;
         }
+        videos.add(_FollowedVideo(post: post, media: media, index: index));
       }
     }
     return videos;
@@ -207,11 +222,7 @@ class _VideoPageState extends State<VideoPage> {
     if (!mounted) {
       return;
     }
-    if (task.status == TaskStatus.failed) {
-      showAppSnack(context, task.error, error: true);
-    } else {
-      showDownloadDoneSnack(context, task.savePath);
-    }
+    showDownloadTaskSnack(context, task);
   }
 
   int _columns(BuildContext context) {
@@ -224,6 +235,19 @@ class _VideoPageState extends State<VideoPage> {
   @override
   Widget build(BuildContext context) {
     final compact = AppLayout.isCompact(context);
+    final app = AppScope.of(context);
+    final categoryKey = _categoryWatchKey(app);
+    final active = TickerMode.of(context);
+    if (active &&
+        _started &&
+        !_loading &&
+        categoryKey != _loadedCategoryKey) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _load();
+        }
+      });
+    }
     return Stack(
       fit: StackFit.expand,
       children: [

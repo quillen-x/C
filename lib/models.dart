@@ -425,14 +425,25 @@ class XMedia {
   }
 
   String get durationLabel {
-    if (duration <= 0) {
+    if (durationSeconds <= 0) {
       return '';
     }
-    final total = duration.round();
+    final total = durationSeconds;
     final minutes = total ~/ 60;
     final seconds = total % 60;
     String two(int value) => value.toString().padLeft(2, '0');
     return '$minutes:${two(seconds)}';
+  }
+
+  int get durationSeconds {
+    final raw = duration;
+    if (raw <= 0) {
+      return 0;
+    }
+    if (raw > 3600) {
+      return (raw / 1000).round();
+    }
+    return raw.round();
   }
 }
 
@@ -591,6 +602,7 @@ class DownloadTask {
   String savePath;
   String error;
   String speed;
+  bool alreadyDownloaded = false;
 }
 
 bool _looksLikeChinese(String raw) {

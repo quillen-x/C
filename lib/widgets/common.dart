@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../models.dart';
 import '../services/io_helpers.dart';
 import '../theme.dart';
 import 'app_layout.dart';
@@ -273,14 +274,16 @@ void showAppSnack(
   bool error = false,
   String? actionLabel,
   VoidCallback? onAction,
+  Duration? duration,
 }) {
   ScaffoldMessenger.of(context).hideCurrentSnackBar();
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Text(message),
-      duration: actionLabel == null
-          ? const Duration(seconds: 4)
-          : const Duration(seconds: 6),
+      duration: duration ??
+          (actionLabel == null
+              ? const Duration(seconds: 4)
+              : const Duration(seconds: 6)),
       backgroundColor: error ? const Color(0xFF3A1D24) : AppColors.surfaceAlt,
       action: actionLabel == null || onAction == null
           ? null
@@ -298,6 +301,7 @@ void showDownloadDoneSnack(BuildContext context, String path) {
     context,
     IoHelpers.savedMessage(path),
     actionLabel: '立即观看',
+    duration: const Duration(seconds: 2),
     onAction: () async {
       try {
         await IoHelpers.openPreview(path);
@@ -306,6 +310,38 @@ void showDownloadDoneSnack(BuildContext context, String path) {
       }
     },
   );
+}
+
+void showDownloadTaskSnack(BuildContext context, DownloadTask task) {
+  if (task.status == TaskStatus.failed) {
+    showAppSnack(context, task.error, error: true);
+    return;
+  }
+  if (task.status == TaskStatus.running || task.status == TaskStatus.queued) {
+    showAppSnack(context, '已在下载中');
+    return;
+  }
+  if (task.alreadyDownloaded) {
+    showAppSnack(
+      context,
+      '已下载过，跳过重复下载',
+      actionLabel: task.savePath.isEmpty ? null : '立即观看',
+      duration: const Duration(seconds: 2),
+      onAction: task.savePath.isEmpty
+          ? null
+          : () async {
+              try {
+                await IoHelpers.openPreview(task.savePath);
+              } catch (error) {
+                showAppSnack(context, error.toString(), error: true);
+              }
+            },
+    );
+    return;
+  }
+  if (task.savePath.isNotEmpty) {
+    showDownloadDoneSnack(context, task.savePath);
+  }
 }
 
 Future<void> copyText(String value) async {

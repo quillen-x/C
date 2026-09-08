@@ -953,11 +953,7 @@ class _VideoViewerPageState extends State<_VideoViewerPage>
             if (!mounted) {
               return;
             }
-            if (task.status == TaskStatus.failed) {
-              showAppSnack(context, task.error, error: true);
-            } else if (task.status == TaskStatus.done) {
-              showDownloadDoneSnack(context, task.savePath);
-            }
+            showDownloadTaskSnack(context, task);
           })
           .catchError((Object error) {
             if (!mounted) {

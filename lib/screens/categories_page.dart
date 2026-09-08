@@ -29,6 +29,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
   bool _loaded = false;
   String? _syncingCategory;
   String? _exportingCategory;
+  bool _exportingAll = false;
   bool _syncCancel = false;
   int _syncDone = 0;
   int _syncTotal = 0;
@@ -172,8 +173,59 @@ class _CategoriesPageState extends State<CategoriesPage> {
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   }
 
+  Future<void> _exportAllCategories() async {
+    if (_exportingAll ||
+        _exportingCategory != null ||
+        _purging ||
+        _syncingCategory != null) {
+      return;
+    }
+    setState(() => _exportingAll = true);
+    try {
+      final byCategory = <String, List<XAccount>>{};
+      var total = 0;
+      for (final key in _categoryKeys) {
+        final rows = await _followedInCategory(key);
+        if (rows.isEmpty) {
+          continue;
+        }
+        byCategory[XAccount.categoryLabel(key)] = rows;
+        total += rows.length;
+      }
+      if (!mounted) {
+        return;
+      }
+      if (total == 0) {
+        showAppSnack(context, '没有可导出的关注人');
+        return;
+      }
+      await CategoryExcel.exportAll(byCategory: byCategory);
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(
+        context,
+        AppLayout.isIOS
+            ? '已导出 ${byCategory.length} 个分类、共 $total 人'
+            : '已导出 ${byCategory.length} 个分类、共 $total 人，已打开文件',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, error.toString(), error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _exportingAll = false);
+      }
+    }
+  }
+
   Future<void> _exportCategory(String category) async {
-    if (_exportingCategory != null || _purging || _syncingCategory != null) {
+    if (_exportingAll ||
+        _exportingCategory != null ||
+        _purging ||
+        _syncingCategory != null) {
       return;
     }
     final label = XAccount.categoryLabel(category);
@@ -354,6 +406,46 @@ class _CategoriesPageState extends State<CategoriesPage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _exportAllButton({required bool compact}) {
+    final busy = _exportingAll ||
+        _exportingCategory != null ||
+        _purging ||
+        _syncingCategory != null;
+    if (compact) {
+      return _iconAction(
+        asset: 'assets/images/export.svg',
+        tooltip: _exportingAll ? '导出中' : '导出全部',
+        busy: _exportingAll,
+        onPressed: busy ? null : _exportAllCategories,
+      );
+    }
+    return TextButton.icon(
+      onPressed: busy ? null : _exportAllCategories,
+      icon: _exportingAll
+          ? SizedBox(
+              width: 14.w,
+              height: 14.w,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.w,
+                color: AppColors.accent,
+              ),
+            )
+          : SvgPicture.asset(
+              'assets/images/export.svg',
+              width: 16.w,
+              height: 16.w,
+              colorFilter: const ColorFilter.mode(
+                AppColors.accent,
+                BlendMode.srcIn,
+              ),
+            ),
+      label: Text(
+        _exportingAll ? '导出中…' : '导出全部',
+        style: TextStyle(fontSize: 13.sp, color: AppColors.accent),
       ),
     );
   }
@@ -564,6 +656,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
             title: '分类',
             centerTitle: true,
             onBack: canPop ? () => Navigator.of(context).pop() : null,
+            trailing: _exportAllButton(compact: true),
           ),
           Expanded(
             child: ListView(
@@ -607,7 +700,20 @@ class _CategoriesPageState extends State<CategoriesPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('关注分类', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800)),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '关注分类',
+                            style: TextStyle(
+                              fontSize: 16.sp,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        _exportAllButton(compact: false),
+                      ],
+                    ),
                     SizedBox(height: 12.h),
                     InlineActionField(
                       controller: _newCategory,
@@ -635,7 +741,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
     final media = _mediaFor(key);
     final syncing = _syncingCategory == key;
     final exporting = _exportingCategory == key;
-    final busy = _purging || _syncingCategory != null;
+    final busy = _purging || _syncingCategory != null || _exportingAll;
     return Column(
       children: [
         InkWell(
@@ -704,7 +810,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
                       asset: 'assets/images/export.svg',
                       tooltip: exporting ? '导出中' : '导出',
                       busy: exporting,
-                      onPressed: busy || _exportingCategory != null
+                      onPressed: busy || _exportingCategory != null || _exportingAll
                           ? null
                           : () => _exportCategory(key),
                     ),
@@ -741,7 +847,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
     final media = _mediaFor(key);
     final syncing = _syncingCategory == key;
     final exporting = _exportingCategory == key;
-    final busy = _purging || _syncingCategory != null;
+    final busy = _purging || _syncingCategory != null || _exportingAll;
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 8.h),
       child: Column(
@@ -779,7 +885,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
                 asset: 'assets/images/export.svg',
                 tooltip: exporting ? '导出中' : '导出',
                 busy: exporting,
-                onPressed: busy || _exportingCategory != null
+                onPressed: busy || _exportingCategory != null || _exportingAll
                     ? null
                     : () => _exportCategory(key),
               ),

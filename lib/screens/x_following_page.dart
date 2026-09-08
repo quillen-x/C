@@ -244,11 +244,7 @@ class _XFeedPageState extends State<XFeedPage> {
       quality: VideoQuality.best,
     );
     if (!mounted) return;
-    if (task.status == TaskStatus.failed) {
-      showAppSnack(context, task.error, error: true);
-    } else {
-      showDownloadDoneSnack(context, task.savePath);
-    }
+    showDownloadTaskSnack(context, task);
   }
 
   @override
@@ -816,11 +812,7 @@ class _XFollowingPageState extends State<XFollowingPage> {
       quality: VideoQuality.best,
     );
     if (!mounted) return;
-    if (task.status == TaskStatus.failed) {
-      showAppSnack(context, task.error, error: true);
-    } else {
-      showDownloadDoneSnack(context, task.savePath);
-    }
+    showDownloadTaskSnack(context, task);
   }
 
   void _syncSelectionToVisible(List<String> names) {
@@ -2245,11 +2237,7 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
     if (!mounted) {
       return;
     }
-    if (task.status == TaskStatus.failed) {
-      showAppSnack(context, task.error, error: true);
-    } else {
-      showDownloadDoneSnack(context, task.savePath);
-    }
+    showDownloadTaskSnack(context, task);
   }
 
   @override

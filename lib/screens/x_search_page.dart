@@ -428,11 +428,7 @@ class _XSearchPageState extends State<XSearchPage> {
     if (!mounted) {
       return;
     }
-    if (task.status == TaskStatus.failed) {
-      showAppSnack(context, task.error, error: true);
-    } else {
-      showDownloadDoneSnack(context, task.savePath);
-    }
+    showDownloadTaskSnack(context, task);
   }
 
   @override

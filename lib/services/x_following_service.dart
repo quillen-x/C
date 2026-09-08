@@ -904,7 +904,7 @@ class XFollowingService {
         previewUrl: preview,
         width: (map['width'] as num?)?.toInt() ?? 0,
         height: (map['height'] as num?)?.toInt() ?? 0,
-        duration: (map['duration'] as num?)?.toDouble() ?? 0,
+        duration: _parseMediaDuration(map),
       ));
     }
     return media;
@@ -998,5 +998,17 @@ class XFollowingService {
     } finally {
       client.close(force: true);
     }
+  }
+
+  double _parseMediaDuration(Map<String, dynamic> map) {
+    final millis = map['duration_millis'];
+    if (millis is num && millis > 0) {
+      return millis / 1000;
+    }
+    final seconds = map['duration'];
+    if (seconds is num && seconds > 0) {
+      return seconds.toDouble();
+    }
+    return 0;
   }
 }
