@@ -417,6 +417,9 @@ class AppController extends ChangeNotifier {
     if (!media.isVideo) {
       return false;
     }
+    if (!settings.videoLoad.allowsDuration(mediaDurationSeconds(media))) {
+      return false;
+    }
     if (!shouldApplySexVideoDurationFilter(account)) {
       return true;
     }
@@ -752,7 +755,8 @@ class AppController extends ChangeNotifier {
       final dir = await IoHelpers.ensurePhotoSaveDir(
         downloadDir: settings.downloadDir,
         category: category,
-        username: user,
+        isVideo: IoHelpers.isVideoFile('file$ext') ||
+            ext.toLowerCase().contains('m4a'),
       );
       final stamp = IoHelpers.formatSavedStamp(DateTime.now());
       final label = IoHelpers.sanitizeFileName(
@@ -791,10 +795,23 @@ class AppController extends ChangeNotifier {
       return skipped;
     }
     final task = enqueue(title: title, sourceUrl: url);
-    return _run(task, () {
+    return _run(task, () async {
+      var category = '未分类';
+      final username = XFollowingService.extractUsername(url) ?? '';
+      if (username.isNotEmpty) {
+        final account = await accountDb.get(username);
+        if (account != null) {
+          category = XAccount.categoryLabel(account.category);
+        }
+      }
+      final dir = await IoHelpers.ensurePhotoSaveDir(
+        downloadDir: settings.downloadDir,
+        category: category,
+        isVideo: true,
+      );
       return xVideo.download(
         url: url,
-        dir: settings.downloadDir,
+        dir: dir.path,
         quality: quality,
         onProgress: (progress, speed) {
           task.progress = progress;

@@ -312,7 +312,7 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage>
       final dir = await IoHelpers.ensurePhotoSaveDir(
         downloadDir: app.settings.downloadDir,
         category: category,
-        username: username,
+        isVideo: false,
       );
       final path = await _savePhoto(
         url,

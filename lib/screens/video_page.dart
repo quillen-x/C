@@ -146,11 +146,15 @@ class _VideoPageState extends State<VideoPage> {
       }
     }
     videos.sort((a, b) => b.post.likes.compareTo(a.post.likes));
+    final load = app.settings.videoLoad;
     final counts = <String, int>{};
     return videos.where((item) {
+      if (!load.allowsLikes(item.post.likes)) {
+        return false;
+      }
       final key = item.post.username.toLowerCase();
       final n = counts[key] ?? 0;
-      if (n >= 5) {
+      if (n >= load.perUser) {
         return false;
       }
       counts[key] = n + 1;
@@ -259,7 +263,6 @@ class _VideoPageState extends State<VideoPage> {
 
   @override
   Widget build(BuildContext context) {
-    final compact = AppLayout.isCompact(context);
     final app = AppScope.of(context);
     final categoryKey = _categoryWatchKey(app);
     final active = TickerMode.of(context);
@@ -278,7 +281,7 @@ class _VideoPageState extends State<VideoPage> {
       children: [
         _buildBody(),
         MediaHubFabs(
-          onRefresh: compact ? null : _load,
+          onRefresh: _load,
           refreshBusy: _loading,
           onDownload: _downloadPopular,
           downloadBusy: _downloadingPopular,
@@ -288,11 +291,7 @@ class _VideoPageState extends State<VideoPage> {
   }
 
   Widget _wrapPhone(Widget child, {required bool empty}) {
-    return PhoneRefreshHost(
-      onRefresh: _load,
-      empty: empty,
-      child: child,
-    );
+    return child;
   }
 
   Widget _buildBody() {
@@ -309,7 +308,7 @@ class _VideoPageState extends State<VideoPage> {
         EmptyHint(
           icon: Icons.wifi_off_rounded,
           title: '视频加载失败',
-          detail: '$_error\n请确认 VPN 已开启后再下拉刷新。',
+          detail: '$_error\n请确认 VPN 已开启后再点右下角刷新。',
         ),
       );
     }
@@ -339,10 +338,11 @@ class _VideoPageState extends State<VideoPage> {
       }
       return _wrapPhone(
         empty: true,
-        const EmptyHint(
+        EmptyHint(
           icon: Icons.smart_display_outlined,
           title: '暂时没有视频',
-          detail: '这里只显示已打开分类里特别关注的账号、近 72 小时内最新 5 条视频。',
+          detail:
+              '这里只显示已打开分类里特别关注的账号、近 ${AppScope.of(context).settings.videoLoad.hours} 小时内符合条件的视频。',
         ),
       );
     }
@@ -351,7 +351,6 @@ class _VideoPageState extends State<VideoPage> {
       empty: false,
       CustomScrollView(
         controller: _scroll,
-        physics: compact ? const AlwaysScrollableScrollPhysics() : null,
         slivers: [
           SliverPadding(
             padding: AppLayout.mediaHubPadding(context),

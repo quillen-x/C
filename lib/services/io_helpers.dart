@@ -366,6 +366,15 @@ class IoHelpers {
     return '${time.year}-${two(time.month)}-${two(time.day)}_${two(time.hour)}-${two(time.minute)}-${two(time.second)}';
   }
 
+  static String formatSaveDate(DateTime time) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${time.year}-${two(time.month)}-${two(time.day)}';
+  }
+
+  static String mediaKindFolder({required bool isVideo}) {
+    return isVideo ? '视频' : '图片';
+  }
+
   static Future<String> uniqueSavePath({
     required String dir,
     required String label,
@@ -450,29 +459,38 @@ class IoHelpers {
   static Future<Directory> ensurePhotoSaveDir({
     required String downloadDir,
     required String category,
-    required String username,
+    required bool isVideo,
+    DateTime? date,
   }) {
     final cat = sanitizeFileName(
       category.trim().isEmpty ? '未分类' : category.trim(),
     );
-    var user = username.trim().replaceFirst(RegExp(r'^@'), '');
-    if (user.isEmpty) {
-      user = 'unknown';
-    }
-    return ensureDownloadDir('$downloadDir/${sanitizeFileName(cat)}/${sanitizeFileName(user)}');
+    final day = formatSaveDate(date ?? DateTime.now());
+    final kind = mediaKindFolder(isVideo: isVideo);
+    return ensureDownloadDir('$downloadDir/$cat/$day/$kind');
   }
+
+  static final _dateFolder = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+
+  static bool _isKindFolder(String name) => name == '视频' || name == '图片';
 
   static SavedFileInfo describeSavedFile(File file, String downloadDir) {
     var category = '';
     var username = '';
+    var mediaKind = '';
     final root = downloadDir.replaceAll(r'\', '/').replaceAll(RegExp(r'/+$'), '');
     final path = file.path.replaceAll(r'\', '/');
     if (root.isNotEmpty && path.startsWith(root)) {
       final rel = path.substring(root.length).replaceFirst(RegExp(r'^/+'), '');
-      final parts = rel.split('/');
-      if (parts.length >= 4 && parts.first.toLowerCase() == 'mediadownloader') {
-        category = parts[1];
-        username = parts[2];
+      var parts = rel.split('/');
+      if (parts.isNotEmpty && parts.first.toLowerCase() == 'mediadownloader') {
+        parts = parts.skip(1).toList();
+      }
+      if (parts.length >= 4 &&
+          _dateFolder.hasMatch(parts[1]) &&
+          _isKindFolder(parts[2])) {
+        category = parts[0];
+        mediaKind = parts[2];
       } else if (parts.length >= 3) {
         category = parts[0];
         username = parts[1];
@@ -504,6 +522,7 @@ class IoHelpers {
       file: file,
       category: category,
       username: username,
+      mediaKind: mediaKind,
       displayName: displayName,
       downloadedAt: downloadedAt,
       fileName: name,
@@ -519,11 +538,13 @@ class SavedFileInfo {
     required this.downloadedAt,
     required this.fileName,
     this.displayName = '',
+    this.mediaKind = '',
   });
 
   final File file;
   final String category;
   final String username;
+  final String mediaKind;
   final String displayName;
   final DateTime downloadedAt;
   final String fileName;
@@ -556,6 +577,9 @@ class SavedFileInfo {
     }
     if (category.isNotEmpty) {
       parts.add(category);
+    }
+    if (mediaKind.isNotEmpty) {
+      parts.add(mediaKind);
     }
     parts.add(IoHelpers.formatSavedStampLabel(downloadedAt));
     return parts.join(' · ');

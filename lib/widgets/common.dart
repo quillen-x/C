@@ -41,6 +41,8 @@ class AppTextField extends StatelessWidget {
     this.obscureText = false,
     this.isDense = false,
     this.contentPadding,
+    this.keyboardType,
+    this.inputFormatters,
   });
 
   final TextEditingController controller;
@@ -51,6 +53,8 @@ class AppTextField extends StatelessWidget {
   final bool obscureText;
   final bool isDense;
   final EdgeInsetsGeometry? contentPadding;
+  final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -58,6 +62,8 @@ class AppTextField extends StatelessWidget {
       controller: controller,
       obscureText: obscureText,
       onSubmitted: onSubmitted,
+      keyboardType: keyboardType,
+      inputFormatters: inputFormatters,
       textAlignVertical: TextAlignVertical.center,
       style: TextStyle(color: AppColors.text, fontSize: 14.sp),
       cursorColor: AppColors.accent,

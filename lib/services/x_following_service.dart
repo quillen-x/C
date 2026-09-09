@@ -672,16 +672,14 @@ class XFollowingService {
     return posts;
   }
 
-  static const recentPerUser = 5;
-  static const recentMaxAge = Duration(hours: 72);
   static const _recentBatchSize = 8;
 
-  bool _isRecent(XPost post) {
+  bool _isRecent(XPost post, Duration maxAge) {
     final time = post.publishedAt;
     if (time == null) {
       return false;
     }
-    return !time.isBefore(DateTime.now().subtract(recentMaxAge));
+    return !time.isBefore(DateTime.now().subtract(maxAge));
   }
 
   int _compareByLikes(XPost a, XPost b) {
@@ -699,10 +697,17 @@ class XFollowingService {
     bool media = false,
     bool Function(XPost post)? keep,
     void Function(List<XPost> posts, int done, int total)? onProgress,
+    int hours = MediaLoadConfig.defaultHours,
+    int perUser = MediaLoadConfig.defaultPerUser,
+    int minLikes = 0,
   }) async {
     if (usernames.isEmpty) {
       return <XPost>[];
     }
+    final maxAge = Duration(hours: hours.clamp(1, 720));
+    final cap = perUser.clamp(1, 50);
+    final likesMin = minLikes < 0 ? 0 : minLikes;
+    final fetchCount = likesMin > 0 ? (cap * 6).clamp(cap, 50) : cap;
     final posts = <XPost>[];
     final seen = <String>{};
     final total = usernames.length;
@@ -716,6 +721,10 @@ class XFollowingService {
               name,
               media: media,
               keep: keep,
+              maxAge: maxAge,
+              perUser: cap,
+              minLikes: likesMin,
+              fetchCount: fetchCount,
             );
           } catch (_) {
             return <XPost>[];
@@ -739,17 +748,24 @@ class XFollowingService {
     String username, {
     required bool media,
     bool Function(XPost post)? keep,
+    required Duration maxAge,
+    required int perUser,
+    required int minLikes,
+    required int fetchCount,
   }) async {
     final page = media
         ? await _fetchMediaPosts(
             username,
             keep: keep ?? (_) => true,
-            count: recentPerUser,
+            count: fetchCount,
           )
-        : await fetchPostsPage(username, count: recentPerUser);
+        : await fetchPostsPage(username, count: fetchCount);
     return page.posts
         .where((post) {
-          if (!_isRecent(post)) {
+          if (!_isRecent(post, maxAge)) {
+            return false;
+          }
+          if (minLikes > 0 && post.likes < minLikes) {
             return false;
           }
           if (keep != null && !keep(post)) {
@@ -757,7 +773,7 @@ class XFollowingService {
           }
           return true;
         })
-        .take(recentPerUser)
+        .take(perUser)
         .toList();
   }
 
@@ -765,12 +781,16 @@ class XFollowingService {
     List<String> usernames, {
     void Function(List<XPost> posts, int done, int total)? onProgress,
   }) async {
+    final load = settings.videoLoad;
     return XFeedBatch(
       posts: await fetchRecentFeed(
         usernames,
         media: true,
         keep: (post) => post.hasVideo,
         onProgress: onProgress,
+        hours: load.hours,
+        perUser: load.perUser,
+        minLikes: load.minLikes,
       ),
     );
   }
@@ -779,12 +799,16 @@ class XFollowingService {
     List<String> usernames, {
     void Function(List<XPost> posts, int done, int total)? onProgress,
   }) async {
+    final load = settings.photoLoad;
     return XFeedBatch(
       posts: await fetchRecentFeed(
         usernames,
         media: true,
         keep: (post) => post.hasPhotos,
         onProgress: onProgress,
+        hours: load.hours,
+        perUser: load.perUser,
+        minLikes: load.minLikes,
       ),
     );
   }
@@ -792,7 +816,7 @@ class XFollowingService {
   Future<XPostPage> _fetchMediaPosts(
     String username, {
     required bool Function(XPost post) keep,
-    int count = recentPerUser,
+    int count = 5,
   }) async {
     try {
       final posts = <XPost>[];

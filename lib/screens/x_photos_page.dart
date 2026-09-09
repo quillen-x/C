@@ -144,11 +144,15 @@ class _XPhotosPageState extends State<XPhotosPage> {
       }
     }
     photos.sort((a, b) => b.post.likes.compareTo(a.post.likes));
+    final load = AppScope.of(context).settings.photoLoad;
     final counts = <String, int>{};
     return photos.where((item) {
+      if (!load.allowsLikes(item.post.likes)) {
+        return false;
+      }
       final key = item.post.username.toLowerCase();
       final n = counts[key] ?? 0;
-      if (n >= 5) {
+      if (n >= load.perUser) {
         return false;
       }
       counts[key] = n + 1;
@@ -261,13 +265,12 @@ class _XPhotosPageState extends State<XPhotosPage> {
   @override
   Widget build(BuildContext context) {
     final names = AppScope.of(context).settings.xFollowing;
-    final compact = AppLayout.isCompact(context);
     return Stack(
       fit: StackFit.expand,
       children: [
         _buildBody(names.isEmpty),
         MediaHubFabs(
-          onRefresh: compact ? null : _load,
+          onRefresh: _load,
           refreshBusy: _loading,
           onDownload: _downloadPopular,
           downloadBusy: _downloadingPopular,
@@ -277,11 +280,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
   }
 
   Widget _wrapPhone(Widget child, {required bool empty}) {
-    return PhoneRefreshHost(
-      onRefresh: _load,
-      empty: empty,
-      child: child,
-    );
+    return child;
   }
 
   Widget _buildBody(bool emptyFollowing) {
@@ -330,17 +329,18 @@ class _XPhotosPageState extends State<XPhotosPage> {
         EmptyHint(
           icon: Icons.wifi_off_rounded,
           title: '图片加载失败',
-          detail: '$_error\n请确认 VPN 已开启后再下拉刷新。',
+          detail: '$_error\n请确认 VPN 已开启后再点右下角刷新。',
         ),
       );
     }
     if (_photos.isEmpty) {
       return _wrapPhone(
         empty: true,
-        const EmptyHint(
+        EmptyHint(
           icon: Icons.photo_outlined,
           title: '暂时没有图片',
-          detail: '特别关注的人近 72 小时内没有发图片。下拉刷新。',
+          detail:
+              '特别关注的人近 ${AppScope.of(context).settings.photoLoad.hours} 小时内没有符合条件的图片。点右下角刷新。',
         ),
       );
     }
@@ -389,7 +389,6 @@ class _PhotoWaterfall extends StatelessWidget {
     }
     return CustomScrollView(
       controller: controller,
-      physics: AppLayout.isCompact(context) ? const AlwaysScrollableScrollPhysics() : null,
       slivers: [
         SliverPadding(
           padding: AppLayout.mediaHubPadding(context),

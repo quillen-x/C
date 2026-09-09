@@ -579,10 +579,6 @@ class PostWaterfall extends StatelessWidget {
     return _buildWaterfall(context, count);
   }
 
-  ScrollPhysics? _physics(BuildContext context) {
-    return AppLayout.isCompact(context) ? const AlwaysScrollableScrollPhysics() : null;
-  }
-
   Widget _footer() {
     if (!loadingMore) {
       return const SizedBox.shrink();
@@ -603,7 +599,6 @@ class PostWaterfall extends StatelessWidget {
     final showFooter = loadingMore || hasMore;
     return ListView.builder(
       controller: controller,
-      physics: _physics(context),
       padding: padding ?? EdgeInsets.fromLTRB(12.w, 12.h, 12.w, 8.h),
       itemCount: posts.length + (showFooter ? 1 : 0),
       itemBuilder: (context, index) {
@@ -635,7 +630,6 @@ class PostWaterfall extends StatelessWidget {
     }
     return CustomScrollView(
       controller: controller,
-      physics: _physics(context),
       slivers: [
         SliverPadding(
           padding: padding ?? EdgeInsets.fromLTRB(12.w, 12.h, 12.w, 8.h),

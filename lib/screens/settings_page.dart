@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../models.dart';
@@ -21,6 +22,14 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _port = TextEditingController();
   final TextEditingController _ffmpeg = TextEditingController();
   final TextEditingController _dir = TextEditingController();
+  final TextEditingController _photoHours = TextEditingController();
+  final TextEditingController _photoPerUser = TextEditingController();
+  final TextEditingController _photoMinLikes = TextEditingController();
+  final TextEditingController _videoHours = TextEditingController();
+  final TextEditingController _videoPerUser = TextEditingController();
+  final TextEditingController _videoMinLikes = TextEditingController();
+  final TextEditingController _videoMinMinutes = TextEditingController();
+  final TextEditingController _videoMaxMinutes = TextEditingController();
   bool _proxyEnabled = true;
   bool _hydrated = false;
   bool _saving = false;
@@ -38,6 +47,14 @@ class _SettingsPageState extends State<SettingsPage> {
     _port.text = settings.proxyPort;
     _ffmpeg.text = settings.ffmpegPath;
     _dir.text = settings.downloadDir;
+    _photoHours.text = '${settings.photoLoad.hours}';
+    _photoPerUser.text = '${settings.photoLoad.perUser}';
+    _photoMinLikes.text = '${settings.photoLoad.minLikes}';
+    _videoHours.text = '${settings.videoLoad.hours}';
+    _videoPerUser.text = '${settings.videoLoad.perUser}';
+    _videoMinLikes.text = '${settings.videoLoad.minLikes}';
+    _videoMinMinutes.text = '${settings.videoLoad.minDurationMinutes}';
+    _videoMaxMinutes.text = '${settings.videoLoad.maxDurationMinutes}';
     _proxyEnabled = settings.proxyEnabled;
   }
 
@@ -47,10 +64,23 @@ class _SettingsPageState extends State<SettingsPage> {
     _port.dispose();
     _ffmpeg.dispose();
     _dir.dispose();
+    _photoHours.dispose();
+    _photoPerUser.dispose();
+    _photoMinLikes.dispose();
+    _videoHours.dispose();
+    _videoPerUser.dispose();
+    _videoMinLikes.dispose();
+    _videoMinMinutes.dispose();
+    _videoMaxMinutes.dispose();
     super.dispose();
   }
 
+  int _readInt(TextEditingController controller, int fallback) {
+    return int.tryParse(controller.text.trim()) ?? fallback;
+  }
+
   AppSettings _collect() {
+    final current = AppScope.of(context).settings;
     return AppSettings(
       proxyEnabled: _proxyEnabled,
       proxyHost: _host.text.trim(),
@@ -59,17 +89,25 @@ class _SettingsPageState extends State<SettingsPage> {
       downloadDir: _dir.text.trim().isEmpty
           ? IoHelpers.defaultDownloadDir()
           : _dir.text.trim(),
-      xFollowing: AppScope.of(context).settings.xFollowing,
-      visibleCategories: List<String>.from(
-        AppScope.of(context).settings.visibleCategories,
+      photoLoad: MediaLoadConfig(
+        hours: _readInt(_photoHours, current.photoLoad.hours),
+        perUser: _readInt(_photoPerUser, current.photoLoad.perUser),
+        minLikes: _readInt(_photoMinLikes, current.photoLoad.minLikes),
       ),
-      categories: List<String>.from(AppScope.of(context).settings.categories),
-      hiddenDownloads: List<String>.from(
-        AppScope.of(context).settings.hiddenDownloads,
+      videoLoad: MediaLoadConfig(
+        hours: _readInt(_videoHours, current.videoLoad.hours),
+        perUser: _readInt(_videoPerUser, current.videoLoad.perUser),
+        minLikes: _readInt(_videoMinLikes, current.videoLoad.minLikes),
+        minDurationMinutes:
+            _readInt(_videoMinMinutes, current.videoLoad.minDurationMinutes),
+        maxDurationMinutes:
+            _readInt(_videoMaxMinutes, current.videoLoad.maxDurationMinutes),
       ),
-      categoryMedia: Map<String, CategoryMediaConfig>.from(
-        AppScope.of(context).settings.categoryMedia,
-      ),
+      xFollowing: current.xFollowing,
+      visibleCategories: List<String>.from(current.visibleCategories),
+      categories: List<String>.from(current.categories),
+      hiddenDownloads: List<String>.from(current.hiddenDownloads),
+      categoryMedia: Map<String, CategoryMediaConfig>.from(current.categoryMedia),
     );
   }
 
@@ -208,6 +246,110 @@ class _SettingsPageState extends State<SettingsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text('图片', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800)),
+                    SizedBox(height: 6.h),
+                    Text(
+                      '只拉取特别关注账号的近期图片。喜爱数填 0 表示不限制。保存后点右下角刷新生效。',
+                      style: TextStyle(color: AppColors.textMuted, height: 1.5, fontSize: 13.sp),
+                    ),
+                    SizedBox(height: 12.h),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _NumberField(
+                            label: '近几小时',
+                            controller: _photoHours,
+                            hint: '${MediaLoadConfig.defaultHours}',
+                          ),
+                        ),
+                        SizedBox(width: 10.w),
+                        Expanded(
+                          child: _NumberField(
+                            label: '每人最多',
+                            controller: _photoPerUser,
+                            hint: '${MediaLoadConfig.defaultPerUser}',
+                          ),
+                        ),
+                        SizedBox(width: 10.w),
+                        Expanded(
+                          child: _NumberField(
+                            label: '最低喜爱数',
+                            controller: _photoMinLikes,
+                            hint: '${MediaLoadConfig.defaultMinLikes}',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 14.h),
+              SectionCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('视频', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800)),
+                    SizedBox(height: 6.h),
+                    Text(
+                      '只拉取特别关注账号的近期视频。喜爱数和时长填 0 表示不限制。保存后点右下角刷新生效。',
+                      style: TextStyle(color: AppColors.textMuted, height: 1.5, fontSize: 13.sp),
+                    ),
+                    SizedBox(height: 12.h),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _NumberField(
+                            label: '近几小时',
+                            controller: _videoHours,
+                            hint: '${MediaLoadConfig.defaultHours}',
+                          ),
+                        ),
+                        SizedBox(width: 10.w),
+                        Expanded(
+                          child: _NumberField(
+                            label: '每人最多',
+                            controller: _videoPerUser,
+                            hint: '${MediaLoadConfig.defaultPerUser}',
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 12.h),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _NumberField(
+                            label: '最低喜爱数',
+                            controller: _videoMinLikes,
+                            hint: '${MediaLoadConfig.defaultMinLikes}',
+                          ),
+                        ),
+                        SizedBox(width: 10.w),
+                        Expanded(
+                          child: _NumberField(
+                            label: '最短（分钟）',
+                            controller: _videoMinMinutes,
+                            hint: '${MediaLoadConfig.defaultMinDurationMinutes}',
+                          ),
+                        ),
+                        SizedBox(width: 10.w),
+                        Expanded(
+                          child: _NumberField(
+                            label: '最长（分钟）',
+                            controller: _videoMaxMinutes,
+                            hint: '${MediaLoadConfig.defaultMaxDurationMinutes}',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 14.h),
+              SectionCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text('使用说明', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800)),
                     SizedBox(height: 8.h),
                     Text(
@@ -248,6 +390,40 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NumberField extends StatelessWidget {
+  const _NumberField({
+    required this.label,
+    required this.controller,
+    required this.hint,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String hint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp),
+        ),
+        SizedBox(height: 6.h),
+        AppTextField(
+          controller: controller,
+          hint: hint,
+          keyboardType: TextInputType.number,
+          inputFormatters: <TextInputFormatter>[
+            FilteringTextInputFormatter.digitsOnly,
+          ],
         ),
       ],
     );

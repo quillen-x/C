@@ -21,7 +21,6 @@ class CategoriesPage extends StatefulWidget {
 }
 
 class _CategoriesPageState extends State<CategoriesPage> {
-  final TextEditingController _newCategory = TextEditingController();
   Map<String, int> _categoryCounts = <String, int>{};
   List<String> _visibleCategories = <String>[];
   List<String> _categories = <String>[];
@@ -50,12 +49,6 @@ class _CategoriesPageState extends State<CategoriesPage> {
     _visibleCategories = List<String>.from(settings.visibleCategories);
     _categories = List<String>.from(settings.categories);
     _categoryMedia = Map<String, CategoryMediaConfig>.from(settings.categoryMedia);
-  }
-
-  @override
-  void dispose() {
-    _newCategory.dispose();
-    super.dispose();
   }
 
   Future<void> _save() async {
@@ -108,25 +101,85 @@ class _CategoriesPageState extends State<CategoriesPage> {
     return list;
   }
 
-  Future<void> _addCategory() async {
-    final key = _newCategory.text.trim().toLowerCase();
+  Future<void> _promptAddCategory() async {
+    final controller = TextEditingController();
+    final raw = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: Text(
+            '新增分类',
+            style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            style: TextStyle(color: AppColors.text, fontSize: 14.sp),
+            cursorColor: AppColors.accent,
+            decoration: InputDecoration(
+              hintText: '例如 news',
+              hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 13.sp),
+              filled: true,
+              fillColor: AppColors.surfaceAlt,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12.w),
+                borderSide: BorderSide(color: AppColors.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12.w),
+                borderSide: BorderSide(color: AppColors.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12.w),
+                borderSide: BorderSide(color: AppColors.accent, width: 1.4.w),
+              ),
+            ),
+            onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(
+                '取消',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 14.sp),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+              child: Text(
+                '确定',
+                style: TextStyle(color: AppColors.accent, fontSize: 14.sp),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (raw == null || !mounted) {
+      return;
+    }
+    await _addCategory(raw);
+  }
+
+  Future<void> _addCategory(String raw) async {
+    final key = raw.trim().toLowerCase();
     if (key.isEmpty) {
       showAppSnack(context, '请输入分类名', error: true);
       return;
     }
     if (_categoryKeys.contains(key)) {
-      showAppSnack(context, '分类「$key」已存在', error: true);
+      showAppSnack(context, '分类「${XAccount.categoryLabel(key)}」已存在', error: true);
       return;
     }
-    setState(() {
-      _categories.add(key);
-      _newCategory.clear();
-    });
+    setState(() => _categories.add(key));
     await _save();
     if (!mounted) {
       return;
     }
-    showAppSnack(context, '已新增分类 $key，默认关闭');
+    showAppSnack(context, '已新增分类 ${XAccount.categoryLabel(key)}，默认关闭');
   }
 
   Future<void> _viewCategory(String category) async {
@@ -550,16 +603,16 @@ class _CategoriesPageState extends State<CategoriesPage> {
       message: tooltip,
       child: Material(
         color: on ? AppColors.accent.withValues(alpha: 0.22) : AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(10.w),
+        borderRadius: BorderRadius.circular(8.w),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(10.w),
+          borderRadius: BorderRadius.circular(8.w),
           child: Padding(
-            padding: EdgeInsets.all(8.w),
+            padding: EdgeInsets.all(5.w),
             child: SvgPicture.asset(
               asset,
-              width: 18.w,
-              height: 18.w,
+              width: 14.w,
+              height: 14.w,
               colorFilter: ColorFilter.mode(
                 on ? AppColors.accent : AppColors.textMuted,
                 BlendMode.srcIn,
@@ -567,6 +620,42 @@ class _CategoriesPageState extends State<CategoriesPage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _headerActions({required bool compact}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _addCategoryButton(compact: compact),
+        _exportAllButton(compact: compact),
+      ],
+    );
+  }
+
+  Widget _addCategoryButton({required bool compact}) {
+    if (compact) {
+      return _iconAction(
+        asset: 'assets/images/add.svg',
+        tooltip: '新增分类',
+        onPressed: _promptAddCategory,
+      );
+    }
+    return TextButton.icon(
+      onPressed: _promptAddCategory,
+      icon: SvgPicture.asset(
+        'assets/images/add.svg',
+        width: 16.w,
+        height: 16.w,
+        colorFilter: const ColorFilter.mode(
+          AppColors.accent,
+          BlendMode.srcIn,
+        ),
+      ),
+      label: Text(
+        '新增',
+        style: TextStyle(fontSize: 13.sp, color: AppColors.accent),
       ),
     );
   }
@@ -579,7 +668,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
         _addingCategory != null;
     if (compact) {
       return _iconAction(
-        asset: 'assets/images/export.svg',
+        asset: 'assets/images/output.svg',
         tooltip: _exportingAll ? '导出中' : '导出全部',
         busy: _exportingAll,
         onPressed: busy ? null : _exportAllCategories,
@@ -597,7 +686,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
               ),
             )
           : SvgPicture.asset(
-              'assets/images/export.svg',
+              'assets/images/output.svg',
               width: 16.w,
               height: 16.w,
               colorFilter: const ColorFilter.mode(
@@ -628,23 +717,26 @@ class _CategoriesPageState extends State<CategoriesPage> {
       tooltip: tooltip,
       onPressed: enabled ? onPressed : null,
       visualDensity: VisualDensity.compact,
-      padding: EdgeInsets.all(8.w),
-      constraints: BoxConstraints(minWidth: 36.w, minHeight: 36.h),
+      padding: EdgeInsets.zero,
+      alignment: Alignment.center,
+      constraints: BoxConstraints(minWidth: 40.w, minHeight: 40.h),
       icon: busy
           ? SizedBox(
-              width: 16.w,
-              height: 16.w,
+              width: 20.w,
+              height: 20.w,
               child: CircularProgressIndicator(
                 strokeWidth: 2.w,
                 color: AppColors.textMuted,
               ),
             )
           : icon != null
-              ? Icon(icon, size: 18.w, color: tint)
+              ? Icon(icon, size: 22.w, color: tint)
               : SvgPicture.asset(
                   asset!,
-                  width: 18.w,
-                  height: 18.w,
+                  width: 22.w,
+                  height: 22.w,
+                  alignment: Alignment.center,
+                  fit: BoxFit.contain,
                   colorFilter: ColorFilter.mode(tint, BlendMode.srcIn),
                 ),
     );
@@ -819,19 +911,12 @@ class _CategoriesPageState extends State<CategoriesPage> {
             title: '分类',
             centerTitle: true,
             onBack: canPop ? () => Navigator.of(context).pop() : null,
-            trailing: _exportAllButton(compact: true),
+            trailing: _headerActions(compact: true),
           ),
           Expanded(
             child: ListView(
               padding: EdgeInsets.fromLTRB(12.w, 0, 12.w, 12.h),
               children: [
-                InlineActionField(
-                  controller: _newCategory,
-                  hint: '新分类名，例如 news',
-                  actionLabel: '新增',
-                  onAction: _addCategory,
-                ),
-                SizedBox(height: 8.h),
                 ..._categoryKeys.map(_phoneCategoryTile),
               ],
             ),
@@ -874,15 +959,8 @@ class _CategoriesPageState extends State<CategoriesPage> {
                             ),
                           ),
                         ),
-                        _exportAllButton(compact: false),
+                        _headerActions(compact: false),
                       ],
-                    ),
-                    SizedBox(height: 12.h),
-                    InlineActionField(
-                      controller: _newCategory,
-                      hint: '新分类名，例如 news',
-                      actionLabel: '新增',
-                      onAction: _addCategory,
                     ),
                     SizedBox(height: 8.h),
                     ..._categoryKeys.map(_desktopCategoryTile),
@@ -897,6 +975,28 @@ class _CategoriesPageState extends State<CategoriesPage> {
   }
 
   Widget _phoneCategoryTile(String key) {
+    return Column(
+      children: [
+        _categoryTile(key, titleSize: 18.sp, titleWeight: FontWeight.w700),
+        Divider(height: 1.h, color: AppColors.border),
+      ],
+    );
+  }
+
+  Widget _desktopCategoryTile(String key) {
+    return Column(
+      children: [
+        _categoryTile(key, titleSize: 17.sp, titleWeight: FontWeight.w700),
+        Divider(height: 1.h, color: AppColors.border),
+      ],
+    );
+  }
+
+  Widget _categoryTile(
+    String key, {
+    required double titleSize,
+    required FontWeight titleWeight,
+  }) {
     final count = _categoryCounts[key] ?? 0;
     final on = _visibleCategories.any(
       (item) => item.trim().toLowerCase() == key,
@@ -909,47 +1009,43 @@ class _CategoriesPageState extends State<CategoriesPage> {
         _syncingCategory != null ||
         _exportingAll ||
         _addingCategory != null;
-    return Column(
-      children: [
-        InkWell(
-          onTap: () => _viewCategory(key),
-          child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 10.h),
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 8.h),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            XAccount.categoryLabel(key),
-                            style: TextStyle(
-                              fontSize: 16.sp,
-                              fontWeight: FontWeight.w700,
-                            ),
+                InkWell(
+                  onTap: on ? () => _viewCategory(key) : null,
+                  onLongPress: on && !busy ? () => _deleteCategory(key) : null,
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          XAccount.categoryLabel(key),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: titleSize,
+                            fontWeight: titleWeight,
                           ),
-                          SizedBox(height: 2.h),
-                          Text(
-                            '$count 人',
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 12.sp,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                    Switch(
-                      value: on,
-                      activeThumbColor: AppColors.accent,
-                      onChanged: (value) => _toggleCategory(key, value),
-                    ),
-                  ],
+                      SizedBox(width: 8.w),
+                      Text(
+                        '$count 人',
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 12.sp,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                SizedBox(height: 8.h),
+                SizedBox(height: 6.h),
                 Row(
                   children: [
                     _mediaChip(
@@ -972,98 +1068,23 @@ class _CategoriesPageState extends State<CategoriesPage> {
                       on: media.videos,
                       onTap: () => _toggleCategoryMedia(key, videos: !media.videos),
                     ),
-                    const Spacer(),
-                    _iconAction(
-                      icon: Icons.person_add_alt_1_outlined,
-                      tooltip: adding ? '添加中' : '批量添加',
-                      busy: adding,
-                      onPressed: busy ? null : () => _batchAddAccounts(key),
-                    ),
-                    _iconAction(
-                      asset: 'assets/images/export.svg',
-                      tooltip: exporting ? '导出中' : '导出',
-                      busy: exporting,
-                      onPressed: busy || _exportingCategory != null || _exportingAll
-                          ? null
-                          : () => _exportCategory(key),
-                    ),
-                    _iconAction(
-                      asset: 'assets/images/sync.svg',
-                      tooltip: syncing ? '同步中' : '同步资料',
-                      busy: syncing,
-                      onPressed: busy ? null : () => _syncCategory(key),
-                    ),
-                    _iconAction(
-                      asset: 'assets/images/delete.svg',
-                      tooltip: '删除',
-                      color: AppColors.danger,
-                      onPressed: busy ? null : () => _deleteCategory(key),
-                    ),
                   ],
                 ),
               ],
             ),
           ),
-        ),
-        Divider(height: 1.h, color: AppColors.border),
-      ],
-    );
-  }
-
-  Widget _desktopCategoryTile(String key) {
-    final count = _categoryCounts[key] ?? 0;
-    final on = _visibleCategories.any(
-      (item) => item.trim().toLowerCase() == key,
-    );
-    final media = _mediaFor(key);
-    final syncing = _syncingCategory == key;
-    final exporting = _exportingCategory == key;
-    final adding = _addingCategory == key;
-    final busy = _purging ||
-        _syncingCategory != null ||
-        _exportingAll ||
-        _addingCategory != null;
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 8.h),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
           Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      XAccount.categoryLabel(key),
-                      style: TextStyle(
-                        fontSize: 15.sp,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      '$count 人',
-                      style: TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 12.sp,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               _iconAction(
-                asset: 'assets/images/watch.svg',
-                tooltip: '查看',
-                onPressed: () => _viewCategory(key),
-              ),
-              _iconAction(
-                icon: Icons.person_add_alt_1_outlined,
+                asset: 'assets/images/add.svg',
                 tooltip: adding ? '添加中' : '批量添加',
                 busy: adding,
                 onPressed: busy ? null : () => _batchAddAccounts(key),
               ),
               _iconAction(
-                asset: 'assets/images/export.svg',
+                asset: 'assets/images/output.svg',
                 tooltip: exporting ? '导出中' : '导出',
                 busy: exporting,
                 onPressed: busy || _exportingCategory != null || _exportingAll
@@ -1071,46 +1092,16 @@ class _CategoriesPageState extends State<CategoriesPage> {
                     : () => _exportCategory(key),
               ),
               _iconAction(
-                asset: 'assets/images/delete.svg',
-                tooltip: '删除',
-                color: AppColors.danger,
-                onPressed: busy ? null : () => _deleteCategory(key),
-              ),
-              _iconAction(
-                asset: 'assets/images/sync.svg',
+                asset: 'assets/images/async.svg',
                 tooltip: syncing ? '同步中' : '同步资料',
                 busy: syncing,
                 onPressed: busy ? null : () => _syncCategory(key),
               ),
-              Switch(
-                value: on,
-                activeThumbColor: AppColors.accent,
-                onChanged: (value) => _toggleCategory(key, value),
-              ),
-            ],
-          ),
-          SizedBox(height: 6.h),
-          Wrap(
-            spacing: 6.w,
-            runSpacing: 6.h,
-            children: [
-              _mediaChip(
-                asset: 'assets/images/posts.svg',
-                tooltip: '帖子',
-                on: media.posts,
-                onTap: () => _toggleCategoryMedia(key, posts: !media.posts),
-              ),
-              _mediaChip(
-                asset: 'assets/images/image.svg',
-                tooltip: '图片',
-                on: media.photos,
-                onTap: () => _toggleCategoryMedia(key, photos: !media.photos),
-              ),
-              _mediaChip(
-                asset: 'assets/images/video.svg',
-                tooltip: '视频',
-                on: media.videos,
-                onTap: () => _toggleCategoryMedia(key, videos: !media.videos),
+              _iconAction(
+                asset: 'assets/images/selected.svg',
+                tooltip: on ? '关闭分类' : '打开分类',
+                color: on ? AppColors.accent : AppColors.textMuted,
+                onPressed: () => _toggleCategory(key, !on),
               ),
             ],
           ),
@@ -1138,7 +1129,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
   static const _headerHeight = 38.0;
 
   static const _columns = <_SheetColumn>[
-    _SheetColumn('#', 40, align: TextAlign.right),
+    _SheetColumn('#', 56, align: TextAlign.right),
     _SheetColumn('avatar', 48),
     _SheetColumn('name', 140),
     _SheetColumn('description', 280, wrap: true),
@@ -1147,10 +1138,6 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
     _SheetColumn('tweets', 80, align: TextAlign.right),
     _SheetColumn('updated_at', 150),
   ];
-
-  static double get _tableWidth {
-    return _columns.fold<double>(0, (sum, column) => sum + column.width);
-  }
 
   final TextEditingController _query = TextEditingController();
   final TextEditingController _followersMax = TextEditingController();
@@ -1163,8 +1150,8 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
   bool _busy = false;
   bool _scanCancel = false;
   String? _error;
-  String _sortKey = 'name';
-  bool _sortAsc = true;
+  String _sortKey = 'followers';
+  bool _sortAsc = false;
 
   String get _label => XAccount.categoryLabel(widget.category);
 
@@ -1274,6 +1261,26 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
         _sortAsc = true;
       }
     });
+  }
+
+  Future<void> _toggleSpecial(XAccount account) async {
+    if (_busy) {
+      return;
+    }
+    final next = !account.special;
+    await AppScope.of(context).accountDb.updateSpecial(account.username, next);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      final index = _all.indexWhere(
+        (item) => item.username.toLowerCase() == account.username.toLowerCase(),
+      );
+      if (index >= 0) {
+        _all[index] = _all[index].copyWith(special: next);
+      }
+    });
+    showAppSnack(context, next ? '已设为特别关注' : '已取消特别关注');
   }
 
   Future<void> _delete(XAccount account) async {
@@ -1774,13 +1781,11 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
     }
     return Dialog(
       backgroundColor: AppColors.surface,
-      insetPadding: EdgeInsets.symmetric(horizontal: 36.w, vertical: 28.h),
+      insetPadding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 16.h),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.w)),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 980.w,
-          maxHeight: size.height * 0.88,
-        ),
+      child: SizedBox(
+        width: (size.width - 40.w).clamp(720.w, 1280.w),
+        height: size.height * 0.94,
         child: body,
       ),
     );
@@ -1819,47 +1824,52 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
         final account = rows[index];
         final displayName =
             account.name.trim().isEmpty ? account.username : account.name;
-        return InkWell(
-          onTap: () => showAccountHome(context, account),
-          child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 10.h),
-            child: Row(
-              children: [
-                XAvatar(url: account.avatarUrl, size: 40),
-                SizedBox(width: 10.w),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
+        return Padding(
+          padding: EdgeInsets.symmetric(vertical: 10.h),
+          child: Row(
+            children: [
+              InkWell(
+                onTap: () => showAccountHome(context, account),
+                customBorder: const CircleBorder(),
+                child: XAvatar(url: account.avatarUrl, size: 40),
+              ),
+              SizedBox(width: 10.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    GestureDetector(
+                      onTap: () => _toggleSpecial(account),
+                      child: Text(
                         displayName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 15.sp,
+                          color: account.special ? AppColors.danger : null,
                         ),
                       ),
-                      Text(
-                        '@${account.username}'
-                            '${account.followers > 0 ? ' · ${account.followers} 粉丝' : ''}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 12.sp,
-                        ),
+                    ),
+                    Text(
+                      '@${account.username}'
+                          '${account.followers > 0 ? ' · ${account.followers} 粉丝' : ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12.sp,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                IconButton(
-                  tooltip: '删除',
-                  onPressed: _busy ? null : () => _delete(account),
-                  icon: Icon(Icons.close, size: 18.w, color: AppColors.textMuted),
-                ),
-              ],
-            ),
+              ),
+              IconButton(
+                tooltip: '删除',
+                onPressed: _busy ? null : () => _delete(account),
+                icon: Icon(Icons.close, size: 18.w, color: AppColors.textMuted),
+              ),
+            ],
           ),
         );
       },
@@ -1901,37 +1911,62 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12.w),
-          child: Scrollbar(
-            controller: _hScroll,
-            thumbVisibility: true,
-            notificationPredicate: (notification) => notification.depth == 0,
-            child: SingleChildScrollView(
-              controller: _hScroll,
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: _tableWidth.w,
-                child: Column(
-                  children: [
-                    _headerRow(),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: rows.length,
-                        itemBuilder: (context, index) {
-                          return _dataRow(index + 1, rows[index], index.isOdd);
-                        },
-                      ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final widths = _resolvedColumnWidths(constraints.maxWidth);
+              final tableWidth = widths.fold<double>(0, (sum, item) => sum + item);
+              return Scrollbar(
+                controller: _hScroll,
+                thumbVisibility: true,
+                notificationPredicate: (notification) => notification.depth == 0,
+                child: SingleChildScrollView(
+                  controller: _hScroll,
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: tableWidth,
+                    height: constraints.maxHeight,
+                    child: Column(
+                      children: [
+                        _headerRow(widths),
+                        Expanded(
+                          child: ListView.builder(
+                            itemCount: rows.length,
+                            itemBuilder: (context, index) {
+                              return _dataRow(
+                                index + 1,
+                                rows[index],
+                                index.isOdd,
+                                widths,
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  Widget _headerRow() {
+  List<double> _resolvedColumnWidths(double maxWidth) {
+    final widths = _columns.map((column) => column.width.w).toList();
+    final total = widths.fold<double>(0, (sum, item) => sum + item);
+    final extra = maxWidth - total;
+    if (extra > 0) {
+      final index = _columns.indexWhere((column) => column.key == 'description');
+      if (index >= 0) {
+        widths[index] += extra;
+      }
+    }
+    return widths;
+  }
+
+  Widget _headerRow(List<double> widths) {
     return SizedBox(
       height: _headerHeight.h,
       child: DecoratedBox(
@@ -1940,57 +1975,67 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
           border: Border(bottom: BorderSide(color: AppColors.border)),
         ),
         child: Row(
-          children: _columns.map((column) {
-            final sortable = column.key != '#' && column.key != 'avatar';
-            final active = _sortKey == column.key;
-            return _cell(
-              width: column.width,
-              fillHeight: true,
-              child: sortable
-                  ? InkWell(
-                      onTap: () => _sortBy(column.key),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              column.key,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: column.align,
-                              style: TextStyle(
-                                fontSize: 11.sp,
-                                fontWeight: FontWeight.w800,
-                                color: active ? AppColors.accent : AppColors.text,
-                              ),
-                            ),
-                          ),
-                          if (active)
-                            Icon(
-                              _sortAsc ? Icons.arrow_upward : Icons.arrow_downward,
-                              size: 12.w,
-                              color: AppColors.accent,
-                            ),
-                        ],
-                      ),
-                    )
-                  : Text(
-                      column.key,
-                      maxLines: 1,
-                      textAlign: column.align,
-                      style: TextStyle(
-                        fontSize: 11.sp,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textMuted,
-                      ),
-                    ),
-            );
-          }).toList(),
+          children: [
+            for (var i = 0; i < _columns.length; i++)
+              _headerCell(_columns[i], widths[i]),
+          ],
         ),
       ),
     );
   }
 
-  Widget _dataRow(int number, XAccount account, bool striped) {
+  Widget _headerCell(_SheetColumn column, double width) {
+    final sortable = column.key != '#' && column.key != 'avatar';
+    final active = _sortKey == column.key;
+    return _cell(
+      width: width,
+      fillHeight: true,
+      child: sortable
+          ? InkWell(
+              onTap: () => _sortBy(column.key),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      column.key,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: column.align,
+                      style: TextStyle(
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w800,
+                        color: active ? AppColors.accent : AppColors.text,
+                      ),
+                    ),
+                  ),
+                  if (active)
+                    Icon(
+                      _sortAsc ? Icons.arrow_upward : Icons.arrow_downward,
+                      size: 12.w,
+                      color: AppColors.accent,
+                    ),
+                ],
+              ),
+            )
+          : Text(
+              column.key,
+              maxLines: 1,
+              textAlign: column.align,
+              style: TextStyle(
+                fontSize: 11.sp,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textMuted,
+              ),
+            ),
+    );
+  }
+
+  Widget _dataRow(
+    int number,
+    XAccount account,
+    bool striped,
+    List<double> widths,
+  ) {
     final displayName = account.name.trim().isEmpty ? account.username : account.name;
     final values = <String>[
       '$number',
@@ -2013,7 +2058,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
           children: [
             for (var i = 0; i < _columns.length; i++)
               _cell(
-                width: _columns[i].width,
+                width: widths[i],
                 child: i == 0
                     ? Tooltip(
                         message: '点击删除',
@@ -2045,9 +2090,12 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
                       )
                     : i == 2
                     ? Tooltip(
-                        message: '$displayName  @${account.username}',
+                        message: account.special
+                            ? '点击取消特别关注 · $displayName  @${account.username}'
+                            : '点击设为特别关注 · $displayName  @${account.username}',
                         waitDuration: const Duration(milliseconds: 400),
                         child: GestureDetector(
+                          onTap: () => _toggleSpecial(account),
                           onDoubleTap: () async {
                             await copyText(account.username);
                             if (!mounted) {
@@ -2067,6 +2115,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
                                   fontSize: 12.sp,
                                   height: 1.35,
                                   fontWeight: FontWeight.w600,
+                                  color: account.special ? AppColors.danger : null,
                                 ),
                               ),
                               Text(
@@ -2125,7 +2174,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
     bool fillHeight = false,
   }) {
     return Container(
-      width: width.w,
+      width: width,
       height: fillHeight ? double.infinity : null,
       constraints: fillHeight ? null : BoxConstraints(minHeight: _rowHeight.h),
       alignment: Alignment.topLeft,

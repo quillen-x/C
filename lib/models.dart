@@ -84,6 +84,118 @@ class CategoryMediaConfig {
   }
 }
 
+class MediaLoadConfig {
+  static const defaultHours = 72;
+  static const defaultPerUser = 5;
+  static const defaultMinLikes = 100;
+  static const defaultMinDurationMinutes = 2;
+  static const defaultMaxDurationMinutes = 30;
+
+  MediaLoadConfig({
+    int hours = defaultHours,
+    int perUser = defaultPerUser,
+    int minLikes = defaultMinLikes,
+    int minDurationMinutes = 0,
+    int maxDurationMinutes = 0,
+  })  : hours = _clamp(hours, 1, 720, defaultHours),
+        perUser = _clamp(perUser, 1, 50, defaultPerUser),
+        minLikes = _clamp(minLikes, 0, 100000000, defaultMinLikes),
+        minDurationMinutes = _clamp(minDurationMinutes, 0, 600, 0),
+        maxDurationMinutes = _clamp(maxDurationMinutes, 0, 600, 0);
+
+  int hours;
+  int perUser;
+  int minLikes;
+  int minDurationMinutes;
+  int maxDurationMinutes;
+
+  bool allowsLikes(int likes) => minLikes <= 0 || likes >= minLikes;
+
+  bool allowsDuration(int seconds) {
+    final minSec = minDurationMinutes * 60;
+    var maxSec = maxDurationMinutes * 60;
+    if (minSec > 0 && maxSec > 0 && maxSec < minSec) {
+      maxSec = minSec;
+    }
+    if (minSec <= 0 && maxSec <= 0) {
+      return true;
+    }
+    if (seconds <= 0) {
+      return minSec <= 0;
+    }
+    if (minSec > 0 && seconds < minSec) {
+      return false;
+    }
+    if (maxSec > 0 && seconds > maxSec) {
+      return false;
+    }
+    return true;
+  }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'hours': hours,
+      'perUser': perUser,
+      'minLikes': minLikes,
+      'minDurationMinutes': minDurationMinutes,
+      'maxDurationMinutes': maxDurationMinutes,
+    };
+  }
+
+  MediaLoadConfig copy() {
+    return MediaLoadConfig(
+      hours: hours,
+      perUser: perUser,
+      minLikes: minLikes,
+      minDurationMinutes: minDurationMinutes,
+      maxDurationMinutes: maxDurationMinutes,
+    );
+  }
+
+  static MediaLoadConfig fromJson(
+    dynamic raw, {
+    MediaLoadConfig? fallback,
+  }) {
+    final base = fallback ?? MediaLoadConfig();
+    if (raw is! Map) {
+      return MediaLoadConfig(
+        hours: base.hours,
+        perUser: base.perUser,
+        minLikes: base.minLikes,
+        minDurationMinutes: base.minDurationMinutes,
+        maxDurationMinutes: base.maxDurationMinutes,
+      );
+    }
+    return MediaLoadConfig(
+      hours: _read(raw['hours'], base.hours),
+      perUser: _read(raw['perUser'], base.perUser),
+      minLikes: _read(raw['minLikes'], base.minLikes),
+      minDurationMinutes: _read(raw['minDurationMinutes'], base.minDurationMinutes),
+      maxDurationMinutes: _read(raw['maxDurationMinutes'], base.maxDurationMinutes),
+    );
+  }
+
+  static int _read(dynamic raw, int fallback) {
+    if (raw is num) {
+      return raw.toInt();
+    }
+    return int.tryParse('$raw') ?? fallback;
+  }
+
+  static int _clamp(int value, int min, int max, int fallback) {
+    if (value < min || value > max) {
+      if (value < min) {
+        return min;
+      }
+      if (value > max) {
+        return max;
+      }
+      return fallback;
+    }
+    return value;
+  }
+}
+
 class AppSettings {
   AppSettings({
     this.proxyEnabled = true,
@@ -91,12 +203,20 @@ class AppSettings {
     this.proxyPort = '7890',
     this.ffmpegPath = '/opt/homebrew/bin/ffmpeg',
     this.downloadDir = '',
+    MediaLoadConfig? photoLoad,
+    MediaLoadConfig? videoLoad,
     List<String>? xFollowing,
     List<String>? visibleCategories,
     List<String>? categories,
     List<String>? hiddenDownloads,
     Map<String, CategoryMediaConfig>? categoryMedia,
-  }) : xFollowing = xFollowing == null
+  })  : photoLoad = photoLoad?.copy() ?? MediaLoadConfig(),
+        videoLoad = videoLoad?.copy() ??
+            MediaLoadConfig(
+              minDurationMinutes: MediaLoadConfig.defaultMinDurationMinutes,
+              maxDurationMinutes: MediaLoadConfig.defaultMaxDurationMinutes,
+            ),
+        xFollowing = xFollowing == null
             ? <String>[]
             : List<String>.from(xFollowing),
         visibleCategories = visibleCategories == null
@@ -117,6 +237,8 @@ class AppSettings {
   String proxyPort;
   String ffmpegPath;
   String downloadDir;
+  MediaLoadConfig photoLoad;
+  MediaLoadConfig videoLoad;
   List<String> xFollowing;
   List<String> visibleCategories;
   List<String> categories;
@@ -183,6 +305,8 @@ class AppSettings {
       'proxyPort': proxyPort,
       'ffmpegPath': ffmpegPath,
       'downloadDir': downloadDir,
+      'photoLoad': photoLoad.toJson(),
+      'videoLoad': videoLoad.toJson(),
       'xFollowing': xFollowing,
       'visibleCategories': visibleCategories,
       'categories': categories,
@@ -191,6 +315,14 @@ class AppSettings {
         (key, value) => MapEntry(key, value.toJson()),
       ),
     };
+  }
+
+  static int _int(dynamic raw, int fallback, {int min = 1, int max = 9999}) {
+    final parsed = raw is num ? raw.toInt() : int.tryParse('$raw');
+    if (parsed == null) {
+      return fallback;
+    }
+    return parsed.clamp(min, max);
   }
 
   static List<String> _stringList(dynamic raw, {bool keepEmpty = false}) {
@@ -219,6 +351,32 @@ class AppSettings {
       proxyPort: json['proxyPort'] as String? ?? '7890',
       ffmpegPath: json['ffmpegPath'] as String? ?? '/opt/homebrew/bin/ffmpeg',
       downloadDir: json['downloadDir'] as String? ?? '',
+      photoLoad: MediaLoadConfig.fromJson(
+        json['photoLoad'],
+        fallback: MediaLoadConfig(
+          hours: _int(json['feedHours'], MediaLoadConfig.defaultHours, min: 1, max: 720),
+          perUser: _int(
+            json['feedPerUser'],
+            MediaLoadConfig.defaultPerUser,
+            min: 1,
+            max: 50,
+          ),
+        ),
+      ),
+      videoLoad: MediaLoadConfig.fromJson(
+        json['videoLoad'],
+        fallback: MediaLoadConfig(
+          hours: _int(json['feedHours'], MediaLoadConfig.defaultHours, min: 1, max: 720),
+          perUser: _int(
+            json['feedPerUser'],
+            MediaLoadConfig.defaultPerUser,
+            min: 1,
+            max: 50,
+          ),
+          minDurationMinutes: MediaLoadConfig.defaultMinDurationMinutes,
+          maxDurationMinutes: MediaLoadConfig.defaultMaxDurationMinutes,
+        ),
+      ),
       xFollowing: (json['xFollowing'] as List<dynamic>? ?? <dynamic>[])
           .map((item) => '$item'.trim())
           .where((item) => item.isNotEmpty)
@@ -339,11 +497,26 @@ class XAccount {
   final String category;
   final bool special;
 
-  String get categoryKey => category.trim().toLowerCase();
+  static const sexCategoryKey = 'sex';
+  static const sexCategoryLabel = '经典';
+
+  String get categoryKey {
+    final key = category.trim().toLowerCase();
+    if (key == sexCategoryLabel) {
+      return sexCategoryKey;
+    }
+    return key;
+  }
 
   static String categoryLabel(String category) {
     final key = category.trim();
-    return key.isEmpty ? '未分类' : key;
+    if (key.isEmpty) {
+      return '未分类';
+    }
+    if (key.toLowerCase() == sexCategoryKey || key == sexCategoryLabel) {
+      return sexCategoryLabel;
+    }
+    return key;
   }
 
   XAccount copyWith({String? category, bool? special, int? lastPostAt}) {

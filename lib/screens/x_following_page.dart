@@ -154,22 +154,17 @@ class _XFeedPageState extends State<XFeedPage> {
   @override
   Widget build(BuildContext context) {
     final names = AppScope.of(context).settings.xFollowing;
-    final compact = AppLayout.isCompact(context);
     return Stack(
       fit: StackFit.expand,
       children: [
         _buildBody(names.isEmpty),
-        if (!compact) RefreshFab(onPressed: _load, busy: _loading),
+        RefreshFab(onPressed: _load, busy: _loading),
       ],
     );
   }
 
   Widget _wrapPhone(Widget child, {required bool empty}) {
-    return PhoneRefreshHost(
-      onRefresh: _load,
-      empty: empty,
-      child: child,
-    );
+    return child;
   }
 
   Widget _buildBody(bool emptyFollowing) {
@@ -218,7 +213,7 @@ class _XFeedPageState extends State<XFeedPage> {
         EmptyHint(
           icon: Icons.wifi_off_rounded,
           title: '动态加载失败',
-          detail: '$_error\n请确认 VPN 已开启后再下拉刷新。',
+          detail: '$_error\n请确认 VPN 已开启后再点右下角刷新。',
         ),
       );
     }
@@ -230,7 +225,7 @@ class _XFeedPageState extends State<XFeedPage> {
           title: _loading ? '正在加载帖子' : '暂时没有帖子',
           detail: _loading
               ? '正在读取特别关注的人。'
-              : '只显示近 72 小时内、每人最新 5 条。下拉刷新。',
+              : '只显示近 72 小时内、每人最新 5 条。点右下角刷新。',
         ),
       );
     }

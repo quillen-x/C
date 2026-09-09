@@ -189,7 +189,7 @@ class _XAccountsPageState extends State<XAccountsPage> {
                   style: const TextStyle(color: AppColors.text),
                   cursorColor: AppColors.accent,
                   decoration: const InputDecoration(
-                    hintText: '例如 sex',
+                    hintText: '例如 经典',
                     hintStyle: TextStyle(color: AppColors.textMuted),
                   ),
                   onSubmitted: (value) => Navigator.pop(context, value),
