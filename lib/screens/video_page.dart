@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -25,9 +27,12 @@ class _VideoPageState extends State<VideoPage> {
   bool _started = false;
   bool _autoLoadScheduled = false;
   bool _noSpecial = false;
+  bool _downloadingPopular = false;
   String? _error;
   String _loadedCategoryKey = '';
   int _loadId = 0;
+
+  static const _popularLikesMin = 1000;
 
   String _categoryWatchKey(AppController app) {
     return app.settings.visibleCategories.join('|');
@@ -188,16 +193,61 @@ class _VideoPageState extends State<VideoPage> {
 
   Future<void> _download(_FollowedVideo item) async {
     final app = AppScope.of(context);
-    showAppSnack(context, '已加入下载：${item.post.text}');
-    final task = await app.downloadVideo(
-      url: item.post.url,
-      title: item.post.text,
-      quality: VideoQuality.best,
+    showQuickSnack(context, '已加入下载：${item.post.text}');
+    unawaited(
+      app.downloadVideo(
+        url: item.post.url,
+        title: item.post.text,
+        quality: VideoQuality.best,
+      ),
     );
+  }
+
+  Future<void> _downloadPopular() async {
+    if (_downloadingPopular) {
+      return;
+    }
+    final items = _videos
+        .where((item) => item.post.likes > _popularLikesMin)
+        .toList();
+    if (items.isEmpty) {
+      showQuickSnack(context, '没有喜爱数超过 $_popularLikesMin 的视频');
+      return;
+    }
+    setState(() => _downloadingPopular = true);
+    final app = AppScope.of(context);
+    final seen = <String>{};
+    var queued = 0;
+    try {
+      for (final item in items) {
+        final key = item.post.id.trim().isEmpty
+            ? item.post.url.trim()
+            : item.post.id.trim();
+        if (key.isEmpty || !seen.add(key)) {
+          continue;
+        }
+        queued += 1;
+        unawaited(
+          app.downloadVideo(
+            url: item.post.url,
+            title: item.post.text,
+            quality: VideoQuality.best,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _downloadingPopular = false);
+      }
+    }
     if (!mounted) {
       return;
     }
-    showDownloadTaskSnack(context, task);
+    if (queued <= 0) {
+      showQuickSnack(context, '没有喜爱数超过 $_popularLikesMin 的视频');
+      return;
+    }
+    showQuickSnack(context, '已加入下载：$queued 个视频');
   }
 
   int _columns(BuildContext context) {
@@ -227,7 +277,12 @@ class _VideoPageState extends State<VideoPage> {
       fit: StackFit.expand,
       children: [
         _buildBody(),
-        if (!compact) RefreshFab(onPressed: _load, busy: _loading),
+        MediaHubFabs(
+          onRefresh: compact ? null : _load,
+          refreshBusy: _loading,
+          onDownload: _downloadPopular,
+          downloadBusy: _downloadingPopular,
+        ),
       ],
     );
   }

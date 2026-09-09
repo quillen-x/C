@@ -268,6 +268,21 @@ class GhostButton extends StatelessWidget {
   }
 }
 
+const Duration kQuickSnackDuration = Duration(milliseconds: 900);
+
+void showQuickSnack(
+  BuildContext context,
+  String message, {
+  bool error = false,
+}) {
+  showAppSnack(
+    context,
+    message,
+    error: error,
+    duration: kQuickSnackDuration,
+  );
+}
+
 void showAppSnack(
   BuildContext context,
   String message, {
@@ -564,37 +579,99 @@ class RefreshFab extends StatelessWidget {
     return Positioned(
       right: 16.w,
       bottom: 16.h,
-      child: Material(
-        color: AppColors.surface,
-        elevation: 8,
-        shadowColor: Colors.black.withValues(alpha: 0.4),
-        shape: CircleBorder(side: BorderSide(color: AppColors.border)),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: busy ? null : onPressed,
-          child: SizedBox(
-            width: 48.w,
-            height: 48.w,
-            child: Center(
-              child: busy
-                  ? SizedBox(
-                      width: 20.w,
-                      height: 20.w,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.w,
-                        color: AppColors.accent,
-                      ),
-                    )
-                  : SvgPicture.asset(
-                      'assets/images/refrsh.svg',
-                      width: 22.w,
-                      height: 22.w,
-                      colorFilter: const ColorFilter.mode(
-                        AppColors.textMuted,
-                        BlendMode.srcIn,
-                      ),
-                    ),
+      child: _CircleFab(
+        onPressed: onPressed,
+        busy: busy,
+        asset: 'assets/images/refrsh.svg',
+      ),
+    );
+  }
+}
+
+class MediaHubFabs extends StatelessWidget {
+  const MediaHubFabs({
+    super.key,
+    this.onRefresh,
+    this.refreshBusy = false,
+    required this.onDownload,
+    this.downloadBusy = false,
+  });
+
+  final VoidCallback? onRefresh;
+  final bool refreshBusy;
+  final VoidCallback? onDownload;
+  final bool downloadBusy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      right: 16.w,
+      bottom: 16.h,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _CircleFab(
+            onPressed: onDownload,
+            busy: downloadBusy,
+            asset: 'assets/images/download.svg',
+          ),
+          if (onRefresh != null) ...[
+            SizedBox(width: 10.w),
+            _CircleFab(
+              onPressed: onRefresh,
+              busy: refreshBusy,
+              asset: 'assets/images/refrsh.svg',
             ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CircleFab extends StatelessWidget {
+  const _CircleFab({
+    required this.onPressed,
+    this.busy = false,
+    this.asset,
+  });
+
+  final VoidCallback? onPressed;
+  final bool busy;
+  final String? asset;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      elevation: 8,
+      shadowColor: Colors.black.withValues(alpha: 0.4),
+      shape: CircleBorder(side: BorderSide(color: AppColors.border)),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: busy ? null : onPressed,
+        child: SizedBox(
+          width: 48.w,
+          height: 48.w,
+          child: Center(
+            child: busy
+                ? SizedBox(
+                    width: 20.w,
+                    height: 20.w,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.w,
+                      color: AppColors.accent,
+                    ),
+                  )
+                : SvgPicture.asset(
+                    asset ?? 'assets/images/refrsh.svg',
+                    width: 22.w,
+                    height: 22.w,
+                    colorFilter: const ColorFilter.mode(
+                      AppColors.textMuted,
+                      BlendMode.srcIn,
+                    ),
+                  ),
           ),
         ),
       ),

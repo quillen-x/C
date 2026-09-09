@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -24,8 +26,11 @@ class _XPhotosPageState extends State<XPhotosPage> {
   bool _started = false;
   bool _autoLoadScheduled = false;
   bool _noSpecial = false;
+  bool _downloadingPopular = false;
   String? _error;
   int _loadId = 0;
+
+  static const _popularLikesMin = 1000;
 
   @override
   void didChangeDependencies() {
@@ -151,6 +156,71 @@ class _XPhotosPageState extends State<XPhotosPage> {
     }).toList();
   }
 
+  Future<void> _downloadPopular() async {
+    if (_downloadingPopular) {
+      return;
+    }
+    final items = _photos
+        .where((item) => item.post.likes > _popularLikesMin)
+        .toList();
+    if (items.isEmpty) {
+      showQuickSnack(context, '没有喜爱数超过 $_popularLikesMin 的图片');
+      return;
+    }
+    setState(() => _downloadingPopular = true);
+    final app = AppScope.of(context);
+    final seen = <String>{};
+    var queued = 0;
+    try {
+      for (final item in items) {
+        final url = item.media.originalUrl.trim().isEmpty
+            ? item.media.url.trim()
+            : item.media.originalUrl.trim();
+        if (url.isEmpty || !seen.add(url)) {
+          continue;
+        }
+        queued += 1;
+        unawaited(
+          app.downloadDirectMedia(
+            url: url,
+            username: item.post.username,
+            displayName: item.post.displayName,
+            ext: _photoExtFromUrl(url),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _downloadingPopular = false);
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    if (queued <= 0) {
+      showQuickSnack(context, '没有喜爱数超过 $_popularLikesMin 的图片');
+      return;
+    }
+    showQuickSnack(context, '已加入下载：$queued 张图片');
+  }
+
+  String _photoExtFromUrl(String url) {
+    final uri = Uri.tryParse(url);
+    final format = uri?.queryParameters['format']?.toLowerCase() ?? '';
+    final path = (uri?.path ?? url).toLowerCase();
+    final hay = '$path $format';
+    if (hay.contains('png')) {
+      return '.png';
+    }
+    if (hay.contains('gif')) {
+      return '.gif';
+    }
+    if (hay.contains('webp')) {
+      return '.webp';
+    }
+    return '.jpg';
+  }
+
   Future<void> _openProfile(String username) async {
     final app = AppScope.of(context);
     XAccount? account = await app.accountDb.get(username);
@@ -196,7 +266,12 @@ class _XPhotosPageState extends State<XPhotosPage> {
       fit: StackFit.expand,
       children: [
         _buildBody(names.isEmpty),
-        if (!compact) RefreshFab(onPressed: _load, busy: _loading),
+        MediaHubFabs(
+          onRefresh: compact ? null : _load,
+          refreshBusy: _loading,
+          onDownload: _downloadPopular,
+          downloadBusy: _downloadingPopular,
+        ),
       ],
     );
   }
