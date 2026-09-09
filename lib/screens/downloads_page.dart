@@ -212,33 +212,55 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           ? '打开「动态」，在帖子里点下载。完成后会出现在这里，点一下就能看。'
                           : '打开「动态」或「关注」，在帖子里点下载。',
                     )
-                  : ListView(
-                      padding: AppLayout.pagePadding(
-                        context,
-                        bottom: AppLayout.mediaHubBarClearance,
-                      ),
-                      children: [
-                        ...activeTasks.map((task) {
-                          return Padding(
-                            padding: EdgeInsets.only(bottom: 10.h),
-                            child: _TaskTile(
-                              task: task,
-                              onDelete: () => _deleteTask(task),
+                  : CustomScrollView(
+                      slivers: [
+                        if (activeTasks.isNotEmpty)
+                          SliverPadding(
+                            padding: AppLayout.pagePadding(context, bottom: 8),
+                            sliver: SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) {
+                                  final task = activeTasks[index];
+                                  return Padding(
+                                    padding: EdgeInsets.only(bottom: 8.h),
+                                    child: _TaskTile(
+                                      task: task,
+                                      onDelete: () => _deleteTask(task),
+                                    ),
+                                  );
+                                },
+                                childCount: activeTasks.length,
+                              ),
                             ),
-                          );
-                        }),
-                        ...files.map((file) {
-                          return Padding(
-                            padding: EdgeInsets.only(bottom: 10.h),
-                            child: _FileTile(
-                              file: file,
-                              names: _displayNames,
-                              onOpen: () => _open(file.path),
-                              onShare: () => IoHelpers.openInFinder(file.path),
-                              onDelete: () => _deleteFile(file),
+                          ),
+                        SliverPadding(
+                          padding: AppLayout.pagePadding(
+                            context,
+                            bottom: AppLayout.mediaHubBarClearance,
+                          ),
+                          sliver: SliverGrid(
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              mainAxisSpacing: 8.h,
+                              crossAxisSpacing: 8.w,
+                              mainAxisExtent: 56.h,
                             ),
-                          );
-                        }),
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) {
+                                final file = files[index];
+                                return _FileTile(
+                                  file: file,
+                                  names: _displayNames,
+                                  onOpen: () => _open(file.path),
+                                  onShare: () => IoHelpers.openInFinder(file.path),
+                                  onDelete: () => _deleteFile(file),
+                                );
+                              },
+                              childCount: files.length,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
             ),
@@ -382,12 +404,12 @@ class _RecordPreviewState extends State<_RecordPreview> {
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(10.w);
+    final radius = BorderRadius.circular(6.w);
     return ClipRRect(
       borderRadius: radius,
       child: SizedBox(
-        width: 96.w,
-        height: 64.w,
+        width: 48.w,
+        height: 32.w,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -399,7 +421,7 @@ class _RecordPreviewState extends State<_RecordPreview> {
                 child: Icon(
                   Icons.play_circle_fill,
                   color: Colors.white.withValues(alpha: 0.92),
-                  size: 26.w,
+                  size: 14.w,
                 ),
               ),
           ],
@@ -450,7 +472,7 @@ class _RecordPreviewState extends State<_RecordPreview> {
 
   Widget _fallbackIcon(IconData icon) {
     return Center(
-      child: Icon(icon, color: AppColors.accent, size: 24.w),
+      child: Icon(icon, color: AppColors.accent, size: 16.w),
     );
   }
 }
@@ -480,14 +502,14 @@ class _FileTile extends StatelessWidget {
     final image = IoHelpers.isImageFile(info.fileName);
     return Material(
       color: AppColors.surface,
-      borderRadius: BorderRadius.circular(16.w),
+      borderRadius: BorderRadius.circular(8.w),
       child: InkWell(
         onTap: onOpen,
-        borderRadius: BorderRadius.circular(16.w),
+        borderRadius: BorderRadius.circular(8.w),
         child: Container(
-          padding: EdgeInsets.all(12.w),
+          padding: EdgeInsets.fromLTRB(6.w, 6.h, 0, 6.h),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12.w),
+            borderRadius: BorderRadius.circular(8.w),
             border: Border.all(color: AppColors.border),
           ),
           child: Row(
@@ -498,25 +520,26 @@ class _FileTile extends StatelessWidget {
                 image: image,
                 ffmpegPath: AppScope.of(context).settings.ffmpegPath,
               ),
-              SizedBox(width: 12.w),
+              SizedBox(width: 6.w),
               Expanded(
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       info.titleFor(names),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.sp),
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.sp),
                     ),
-                    SizedBox(height: 4.h),
+                    SizedBox(height: 1.h),
                     Text(
                       info.subtitleFor(names),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: AppColors.textMuted,
-                        fontSize: 12.sp,
+                        fontSize: 10.sp,
                       ),
                     ),
                   ],
@@ -525,7 +548,10 @@ class _FileTile extends StatelessWidget {
               IconButton(
                 tooltip: '删除记录',
                 onPressed: onDelete,
-                icon: Icon(Icons.delete_outline, color: AppColors.danger),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: BoxConstraints(minWidth: 28.w, minHeight: 28.h),
+                icon: Icon(Icons.delete_outline, color: AppColors.danger, size: 14.w),
               ),
             ],
           ),
@@ -549,7 +575,7 @@ class _TaskTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(_icon, color: _color, size: 18.w),
+              _taskPreview(),
               SizedBox(width: 8.w),
               Expanded(
                 child: Text(
@@ -594,6 +620,56 @@ class _TaskTile extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget _taskPreview() {
+    final url = task.sourceUrl.trim();
+    if (!_looksLikeImageUrl(url)) {
+      return Icon(_icon, color: _color, size: 18.w);
+    }
+    final preview = XMedia.twitterSizedUrl(url, 'small');
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6.w),
+      child: SizedBox(
+        width: 48.w,
+        height: 32.w,
+        child: AppNetworkImage(
+          url: preview,
+          fit: BoxFit.cover,
+          placeholder: ColoredBox(
+            color: AppColors.surfaceAlt,
+            child: Center(
+              child: SizedBox(
+                width: 12.w,
+                height: 12.w,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5.w,
+                  color: AppColors.accent,
+                ),
+              ),
+            ),
+          ),
+          error: ColoredBox(
+            color: AppColors.surfaceAlt,
+            child: Icon(Icons.image_outlined, size: 16.w, color: AppColors.textMuted),
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool _looksLikeImageUrl(String url) {
+    final lower = url.toLowerCase();
+    return lower.contains('pbs.twimg.com') ||
+        lower.contains('twimg.com/media') ||
+        lower.contains('format=jpg') ||
+        lower.contains('format=png') ||
+        lower.contains('format=webp') ||
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.gif') ||
+        lower.endsWith('.webp');
   }
 
   IconData get _icon {

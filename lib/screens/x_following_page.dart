@@ -141,6 +141,10 @@ class _XFeedPageState extends State<XFeedPage> {
 
   Future<void> _downloadPost(XPost post) async {
     final app = AppScope.of(context);
+    if (app.isInDownloadList(post.url)) {
+      showAppSnack(context, '已经在下载列表中');
+      return;
+    }
     showAppSnack(context, '已加入下载：${post.text}');
     final task = await app.downloadVideo(
       url: post.url,
@@ -148,6 +152,10 @@ class _XFeedPageState extends State<XFeedPage> {
       quality: VideoQuality.best,
     );
     if (!mounted) return;
+    if (task.alreadyDownloaded) {
+      showAppSnack(context, '已经在下载列表中');
+      return;
+    }
     showDownloadTaskSnack(context, task);
   }
 
@@ -701,6 +709,10 @@ class _XFollowingPageState extends State<XFollowingPage> {
 
   Future<void> _downloadPost(XPost post) async {
     final app = AppScope.of(context);
+    if (app.isInDownloadList(post.url)) {
+      showAppSnack(context, '已经在下载列表中');
+      return;
+    }
     showAppSnack(context, '已加入下载：${post.text}');
     final task = await app.downloadVideo(
       url: post.url,
@@ -708,6 +720,10 @@ class _XFollowingPageState extends State<XFollowingPage> {
       quality: VideoQuality.best,
     );
     if (!mounted) return;
+    if (task.alreadyDownloaded) {
+      showAppSnack(context, '已经在下载列表中');
+      return;
+    }
     showDownloadTaskSnack(context, task);
   }
 
@@ -1920,6 +1936,10 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
 
   Future<void> _downloadPost(XPost post) async {
     final app = AppScope.of(context);
+    if (app.isInDownloadList(post.url)) {
+      showAppSnack(context, '已经在下载列表中');
+      return;
+    }
     showAppSnack(context, '已加入下载：${post.text}');
     final task = await app.downloadVideo(
       url: post.url,
@@ -1927,6 +1947,10 @@ class _AccountHomeDialogState extends State<_AccountHomeDialog> {
       quality: VideoQuality.best,
     );
     if (!mounted) {
+      return;
+    }
+    if (task.alreadyDownloaded) {
+      showAppSnack(context, '已经在下载列表中');
       return;
     }
     showDownloadTaskSnack(context, task);

@@ -339,13 +339,13 @@ void showDownloadTaskSnack(BuildContext context, DownloadTask task) {
     return;
   }
   if (task.status == TaskStatus.running || task.status == TaskStatus.queued) {
-    showAppSnack(context, '已在下载中');
+    showAppSnack(context, '已经在下载列表中');
     return;
   }
   if (task.alreadyDownloaded) {
     showAppSnack(
       context,
-      '已下载过，跳过重复下载',
+      '已经在下载列表中',
       actionLabel: task.savePath.isEmpty ? null : '立即观看',
       duration: const Duration(seconds: 2),
       onAction: task.savePath.isEmpty

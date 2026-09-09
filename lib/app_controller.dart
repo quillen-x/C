@@ -589,15 +589,67 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  final Set<String> _startingDownloads = <String>{};
+
+  bool _sameSource(String a, String b) {
+    final left = a.trim();
+    final right = b.trim();
+    if (left.isEmpty || right.isEmpty) {
+      return false;
+    }
+    if (left == right) {
+      return true;
+    }
+    final leftId = XVideoService.extractStatusId(left);
+    final rightId = XVideoService.extractStatusId(right);
+    return leftId != null && rightId != null && leftId == rightId;
+  }
+
+  Iterable<String> _sourceKeys(String source) sync* {
+    final value = source.trim();
+    if (value.isEmpty) {
+      return;
+    }
+    yield value;
+    final id = XVideoService.extractStatusId(value);
+    if (id != null) {
+      yield 'status:$id';
+    }
+  }
+
+  bool _isStarting(String source) {
+    return _sourceKeys(source).any(_startingDownloads.contains);
+  }
+
+  bool _markStarting(String source) {
+    if (isInDownloadList(source)) {
+      return false;
+    }
+    _startingDownloads.addAll(_sourceKeys(source));
+    return true;
+  }
+
+  void _unmarkStarting(String source) {
+    _startingDownloads.removeAll(_sourceKeys(source).toList());
+  }
+
+  bool isInDownloadList(String sourceUrl) {
+    return _isStarting(sourceUrl) ||
+        activeTaskFor(sourceUrl) != null ||
+        findExistingDownload(sourceUrl) != null;
+  }
+
   DownloadTask? activeTaskFor(String sourceUrl) {
     final source = sourceUrl.trim();
     if (source.isEmpty) {
       return null;
     }
     for (final task in tasks) {
-      if (task.sourceUrl == source &&
-          (task.status == TaskStatus.running ||
-              task.status == TaskStatus.queued)) {
+      if (!_sameSource(task.sourceUrl, source)) {
+        continue;
+      }
+      if (task.status == TaskStatus.running ||
+          task.status == TaskStatus.queued) {
         return task;
       }
     }
@@ -610,7 +662,8 @@ class AppController extends ChangeNotifier {
       return null;
     }
     for (final task in tasks) {
-      if (task.sourceUrl != source || task.status != TaskStatus.done) {
+      if (!_sameSource(task.sourceUrl, source) ||
+          task.status != TaskStatus.done) {
         continue;
       }
       final path = task.savePath.trim();
@@ -740,46 +793,57 @@ class AppController extends ChangeNotifier {
     if (skipped != null) {
       return skipped;
     }
-    final task = enqueue(title: title, sourceUrl: source);
-    return _run(task, () async {
-      var category = '未分类';
-      if (user.isNotEmpty) {
-        final account = await accountDb.get(user);
-        if (account != null) {
-          category = XAccount.categoryLabel(account.category);
-          if (name.isEmpty) {
-            name = account.name.trim();
+    if (!_markStarting(source)) {
+      return _listedOrQueued(sourceUrl: source, title: title);
+    }
+    try {
+      final again = _skipIfAlreadyDownloaded(sourceUrl: source, title: title);
+      if (again != null) {
+        return again;
+      }
+      final task = enqueue(title: title, sourceUrl: source);
+      return await _run(task, () async {
+        var category = '未分类';
+        if (user.isNotEmpty) {
+          final account = await accountDb.get(user);
+          if (account != null) {
+            category = XAccount.categoryLabel(account.category);
+            if (name.isEmpty) {
+              name = account.name.trim();
+            }
           }
         }
-      }
-      final dir = await IoHelpers.ensurePhotoSaveDir(
-        downloadDir: settings.downloadDir,
-        category: category,
-        isVideo: IoHelpers.isVideoFile('file$ext') ||
-            ext.toLowerCase().contains('m4a'),
-      );
-      final stamp = IoHelpers.formatSavedStamp(DateTime.now());
-      final label = IoHelpers.sanitizeFileName(
-        name.isNotEmpty
-            ? '${name}_$stamp'
-            : (user.isNotEmpty ? '${user}_$stamp' : stamp),
-      );
-      final path = await IoHelpers.uniqueSavePath(
-        dir: dir.path,
-        label: label,
-        ext: ext,
-      );
-      await IoHelpers.downloadFile(
-        source,
-        path,
-        onProgress: (progress, speed) {
-          task.progress = progress;
-          task.speed = speed;
-          notifyListeners();
-        },
-      );
-      return path;
-    });
+        final dir = await IoHelpers.ensurePhotoSaveDir(
+          downloadDir: settings.downloadDir,
+          category: category,
+          isVideo: IoHelpers.isVideoFile('file$ext') ||
+              ext.toLowerCase().contains('m4a'),
+        );
+        final stamp = IoHelpers.formatSavedStamp(DateTime.now());
+        final label = IoHelpers.sanitizeFileName(
+          name.isNotEmpty
+              ? '${name}_$stamp'
+              : (user.isNotEmpty ? '${user}_$stamp' : stamp),
+        );
+        final path = await IoHelpers.uniqueSavePath(
+          dir: dir.path,
+          label: label,
+          ext: ext,
+        );
+        await IoHelpers.downloadFile(
+          source,
+          path,
+          onProgress: (progress, speed) {
+            task.progress = progress;
+            task.speed = speed;
+            notifyListeners();
+          },
+        );
+        return path;
+      });
+    } finally {
+      _unmarkStarting(source);
+    }
   }
 
   Future<DownloadTask> downloadVideo({
@@ -787,39 +851,65 @@ class AppController extends ChangeNotifier {
     required String title,
     required VideoQuality quality,
   }) async {
-    final skipped = await _skipPostIfAlreadyDownloaded(
-      sourceUrl: url,
-      title: title,
-    );
+    final source = url.trim();
+    final skipped = _skipIfAlreadyDownloaded(sourceUrl: source, title: title);
     if (skipped != null) {
       return skipped;
     }
-    final task = enqueue(title: title, sourceUrl: url);
-    return _run(task, () async {
-      var category = '未分类';
-      final username = XFollowingService.extractUsername(url) ?? '';
-      if (username.isNotEmpty) {
-        final account = await accountDb.get(username);
-        if (account != null) {
-          category = XAccount.categoryLabel(account.category);
-        }
+    if (!_markStarting(source)) {
+      return _listedOrQueued(sourceUrl: source, title: title);
+    }
+    try {
+      final existing = await _skipPostIfAlreadyDownloaded(
+        sourceUrl: source,
+        title: title,
+      );
+      if (existing != null) {
+        return existing;
       }
-      final dir = await IoHelpers.ensurePhotoSaveDir(
-        downloadDir: settings.downloadDir,
-        category: category,
-        isVideo: true,
-      );
-      return xVideo.download(
-        url: url,
-        dir: dir.path,
-        quality: quality,
-        onProgress: (progress, speed) {
-          task.progress = progress;
-          task.speed = speed;
-          notifyListeners();
-        },
-      );
-    });
+      final task = enqueue(title: title, sourceUrl: source);
+      return await _run(task, () async {
+        var category = '未分类';
+        final username = XFollowingService.extractUsername(source) ?? '';
+        if (username.isNotEmpty) {
+          final account = await accountDb.get(username);
+          if (account != null) {
+            category = XAccount.categoryLabel(account.category);
+          }
+        }
+        final dir = await IoHelpers.ensurePhotoSaveDir(
+          downloadDir: settings.downloadDir,
+          category: category,
+          isVideo: true,
+        );
+        return xVideo.download(
+          url: source,
+          dir: dir.path,
+          quality: quality,
+          onProgress: (progress, speed) {
+            task.progress = progress;
+            task.speed = speed;
+            notifyListeners();
+          },
+        );
+      });
+    } finally {
+      _unmarkStarting(source);
+    }
+  }
+
+  DownloadTask _listedOrQueued({
+    required String sourceUrl,
+    required String title,
+  }) {
+    return _skipIfAlreadyDownloaded(sourceUrl: sourceUrl, title: title) ??
+        DownloadTask(
+          id: IoHelpers.uniqueId(),
+          kind: DownloadKind.x,
+          title: title,
+          sourceUrl: sourceUrl,
+          status: TaskStatus.queued,
+        );
   }
 
   Future<DownloadTask> _run(

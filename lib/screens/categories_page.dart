@@ -1143,7 +1143,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
   final TextEditingController _followersMax = TextEditingController();
   final TextEditingController _tweetsMax = TextEditingController();
   final TextEditingController _descKeyword = TextEditingController();
-  final TextEditingController _inactiveDays = TextEditingController(text: '15');
+  final TextEditingController _inactiveDays = TextEditingController();
   final ScrollController _hScroll = ScrollController();
   List<XAccount> _all = <XAccount>[];
   bool _loading = true;
@@ -1158,6 +1158,10 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
   @override
   void initState() {
     super.initState();
+    _inactiveDays.text =
+        widget.category.trim().toLowerCase() == XAccount.sexCategoryKey
+            ? '30'
+            : '15';
     _query.addListener(() {
       if (mounted) {
         setState(() {});
@@ -1192,10 +1196,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
         if (account.categoryKey != key) {
           return false;
         }
-        if (!followed.contains(account.username.toLowerCase())) {
-          return false;
-        }
-        return app.showsAccount(account);
+        return followed.contains(account.username.toLowerCase());
       }).toList();
       if (!mounted) {
         return;
@@ -1340,7 +1341,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
     if (_busy) {
       return;
     }
-    final targets = _all.where(match).toList();
+    final targets = _all.where((account) => !account.special && match(account)).toList();
     if (targets.isEmpty) {
       showAppSnack(context, emptyMessage, error: true);
       return;
@@ -1383,7 +1384,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
     }
     await _purgeWhere(
       title: '删除粉丝过少的关注',
-      detail: (count) => '将取消关注并删除粉丝少于 $max 的 $count 个账号，不可恢复。',
+      detail: (count) => '将取消关注并删除粉丝少于 $max 的 $count 个账号（不含特别关注），不可恢复。',
       match: (account) => account.followers < max,
       emptyMessage: '没有粉丝少于 $max 的关注',
     );
@@ -1397,7 +1398,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
     }
     await _purgeWhere(
       title: '删除推文过少的关注',
-      detail: (count) => '将取消关注并删除推文少于 $max 的 $count 个账号，不可恢复。',
+      detail: (count) => '将取消关注并删除推文少于 $max 的 $count 个账号（不含特别关注），不可恢复。',
       match: (account) => account.tweets < max,
       emptyMessage: '没有推文少于 $max 的关注',
     );
@@ -1411,7 +1412,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
     }
     await _purgeWhere(
       title: '删除简介不含关键字的关注',
-      detail: (count) => '将取消关注并删除简介不含「$keyword」的 $count 个账号，不可恢复。',
+      detail: (count) => '将取消关注并删除简介不含「$keyword」的 $count 个账号（不含特别关注），不可恢复。',
       match: (account) => !account.description.toLowerCase().contains(keyword),
       emptyMessage: '没有简介不含「$keyword」的关注',
     );
@@ -1430,6 +1431,11 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
       showAppSnack(context, '这个分类还没有关注人', error: true);
       return;
     }
+    final candidates = _all.where((account) => !account.special).toList();
+    if (candidates.isEmpty) {
+      showAppSnack(context, '特别关注的人不会被删除');
+      return;
+    }
     _scanCancel = false;
     setState(() => _busy = true);
     final cutoff = DateTime.now().subtract(Duration(days: days));
@@ -1439,7 +1445,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
     var done = 0;
     var failed = 0;
     var current = '';
-    final total = _all.length;
+    final total = candidates.length;
     StateSetter? setDialog;
     var dialogOpen = false;
 
@@ -1459,7 +1465,7 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
               return AlertDialog(
                 backgroundColor: AppColors.surface,
                 title: Text(
-                  '扫描 $days 天未发帖',
+                  '扫描 $days 天未发帖（不含特别关注）',
                   style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
                 ),
                 content: SizedBox(
@@ -1517,13 +1523,21 @@ class _CategoryMembersDialogState extends State<_CategoryMembersDialog> {
 
     try {
       openDialog();
-      for (final account in List<XAccount>.from(_all)) {
+      for (final account in List<XAccount>.from(candidates)) {
         if (_scanCancel) {
           break;
         }
         current = account.username;
         setDialog?.call(() {});
         try {
+          if (account.lastPostAt > 0) {
+            final last = DateTime.fromMillisecondsSinceEpoch(account.lastPostAt);
+            if (!last.isBefore(cutoff)) {
+              done += 1;
+              setDialog?.call(() {});
+              continue;
+            }
+          }
           final page = await service.fetchPostsPage(account.username, count: 8);
           final latestMillis = XPost.latestMillis(page.posts);
           if (latestMillis > 0) {

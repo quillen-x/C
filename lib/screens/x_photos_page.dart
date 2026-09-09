@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -145,53 +143,78 @@ class _XPhotosPageState extends State<XPhotosPage> {
     }
     photos.sort((a, b) => b.post.likes.compareTo(a.post.likes));
     final load = AppScope.of(context).settings.photoLoad;
-    final counts = <String, int>{};
+    final postCounts = <String, int>{};
+    final keptPosts = <String>{};
     return photos.where((item) {
       if (!load.allowsLikes(item.post.likes)) {
         return false;
       }
+      final postId = item.post.id.trim().isEmpty
+          ? item.post.url.trim()
+          : item.post.id.trim();
+      if (postId.isNotEmpty && keptPosts.contains(postId)) {
+        return true;
+      }
       final key = item.post.username.toLowerCase();
-      final n = counts[key] ?? 0;
+      final n = postCounts[key] ?? 0;
       if (n >= load.perUser) {
         return false;
       }
-      counts[key] = n + 1;
+      postCounts[key] = n + 1;
+      if (postId.isNotEmpty) {
+        keptPosts.add(postId);
+      }
       return true;
     }).toList();
+  }
+
+  String _photoUrl(_FollowedPhoto item) {
+    final original = item.media.originalUrl.trim();
+    if (original.isNotEmpty) {
+      return original;
+    }
+    return item.media.url.trim();
   }
 
   Future<void> _downloadPopular() async {
     if (_downloadingPopular) {
       return;
     }
-    final items = _photos
-        .where((item) => item.post.likes > _popularLikesMin)
-        .toList();
-    if (items.isEmpty) {
+    final app = AppScope.of(context);
+    final seen = <String>{};
+    final batch = <_FollowedPhoto>[];
+    for (final item in _photos) {
+      if (item.post.likes <= _popularLikesMin) {
+        continue;
+      }
+      final url = _photoUrl(item);
+      if (url.isEmpty || !seen.add(url)) {
+        continue;
+      }
+      if (app.isInDownloadList(url) || app.findExistingDownload(url) != null) {
+        continue;
+      }
+      batch.add(item);
+    }
+    if (batch.isEmpty) {
       showQuickSnack(context, '没有喜爱数超过 $_popularLikesMin 的图片');
       return;
     }
     setState(() => _downloadingPopular = true);
-    final app = AppScope.of(context);
-    final seen = <String>{};
-    var queued = 0;
+    var done = 0;
     try {
-      for (final item in items) {
-        final url = item.media.originalUrl.trim().isEmpty
-            ? item.media.url.trim()
-            : item.media.originalUrl.trim();
-        if (url.isEmpty || !seen.add(url)) {
-          continue;
+      showQuickSnack(context, '开始下载 ${batch.length} 张图片');
+      for (final item in batch) {
+        if (!mounted) {
+          return;
         }
-        queued += 1;
-        unawaited(
-          app.downloadDirectMedia(
-            url: url,
-            username: item.post.username,
-            displayName: item.post.displayName,
-            ext: _photoExtFromUrl(url),
-          ),
+        await app.downloadDirectMedia(
+          url: _photoUrl(item),
+          username: item.post.username,
+          displayName: item.post.displayName,
+          ext: _photoExtFromUrl(_photoUrl(item)),
         );
+        done += 1;
       }
     } finally {
       if (mounted) {
@@ -201,11 +224,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
     if (!mounted) {
       return;
     }
-    if (queued <= 0) {
-      showQuickSnack(context, '没有喜爱数超过 $_popularLikesMin 的图片');
-      return;
-    }
-    showQuickSnack(context, '已加入下载：$queued 张图片');
+    showQuickSnack(context, '已下载 $done 张图片');
   }
 
   String _photoExtFromUrl(String url) {

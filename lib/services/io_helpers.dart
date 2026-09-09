@@ -397,6 +397,34 @@ class IoHelpers {
     String path, {
     required void Function(double progress, String speed) onProgress,
   }) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await _downloadFileOnce(url, path, onProgress: onProgress);
+        return;
+      } catch (error) {
+        lastError = error;
+        try {
+          await File(path).delete();
+        } catch (_) {}
+        if (attempt >= 2) {
+          break;
+        }
+        await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+      }
+    }
+    final error = lastError;
+    if (error is StateError) {
+      throw error;
+    }
+    throw StateError('无法下载，请确认网络或代理已开启');
+  }
+
+  static Future<void> _downloadFileOnce(
+    String url,
+    String path, {
+    required void Function(double progress, String speed) onProgress,
+  }) async {
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 20);
     client.idleTimeout = const Duration(minutes: 10);
@@ -443,6 +471,12 @@ class IoHelpers {
           await file.delete();
         } catch (_) {}
         throw StateError('文件为空，请稍后重试');
+      }
+      if (total > 0 && received < total) {
+        try {
+          await file.delete();
+        } catch (_) {}
+        throw StateError('文件不完整，请稍后重试');
       }
     } on SocketException {
       throw StateError('无法下载，请确认网络或代理已开启');

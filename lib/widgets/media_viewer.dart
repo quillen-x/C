@@ -935,8 +935,8 @@ class _VideoViewerPageState extends State<_VideoViewerPage>
     if (app == null) {
       return;
     }
-    if (app.activeTaskFor(url) != null) {
-      showAppSnack(context, '已在下载中');
+    if (app.isInDownloadList(url)) {
+      showAppSnack(context, '已经在下载列表中');
       return;
     }
     _startingDownload = true;

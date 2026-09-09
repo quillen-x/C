@@ -32,7 +32,8 @@ class _VideoPageState extends State<VideoPage> {
   String _loadedCategoryKey = '';
   int _loadId = 0;
 
-  static const _popularLikesMin = 1000;
+  static const _batchDownloadCount = 5;
+  static const _batchLikesMin = 100;
 
   String _categoryWatchKey(AppController app) {
     return app.settings.visibleCategories.join('|');
@@ -197,47 +198,84 @@ class _VideoPageState extends State<VideoPage> {
 
   Future<void> _download(_FollowedVideo item) async {
     final app = AppScope.of(context);
+    final url = item.post.url.trim();
+    if (app.isInDownloadList(url)) {
+      showAppSnack(context, '已经在下载列表中');
+      return;
+    }
     showQuickSnack(context, '已加入下载：${item.post.text}');
     unawaited(
-      app.downloadVideo(
-        url: item.post.url,
-        title: item.post.text,
-        quality: VideoQuality.best,
-      ),
+      app
+          .downloadVideo(
+            url: url,
+            title: item.post.text,
+            quality: VideoQuality.best,
+          )
+          .then((task) {
+            if (!mounted || !task.alreadyDownloaded) {
+              return;
+            }
+            showAppSnack(context, '已经在下载列表中');
+          }),
     );
+  }
+
+  String _postKey(_FollowedVideo item) {
+    final id = item.post.id.trim();
+    if (id.isNotEmpty) {
+      return id;
+    }
+    return item.post.url.trim();
   }
 
   Future<void> _downloadPopular() async {
     if (_downloadingPopular) {
       return;
     }
-    final items = _videos
-        .where((item) => item.post.likes > _popularLikesMin)
-        .toList();
-    if (items.isEmpty) {
-      showQuickSnack(context, '没有喜爱数超过 $_popularLikesMin 的视频');
+    final app = AppScope.of(context);
+    final seen = <String>{};
+    final batch = <_FollowedVideo>[];
+    for (final item in _videos) {
+      final key = _postKey(item);
+      final url = item.post.url.trim();
+      if (item.post.likes <= _batchLikesMin) {
+        continue;
+      }
+      if (key.isEmpty || url.isEmpty || !seen.add(key)) {
+        continue;
+      }
+      if (app.activeTaskFor(url) != null) {
+        continue;
+      }
+      if (app.findExistingDownload(url) != null) {
+        continue;
+      }
+      if (await app.findExistingPostVideoPath(url) != null) {
+        continue;
+      }
+      batch.add(item);
+      if (batch.length >= _batchDownloadCount) {
+        break;
+      }
+    }
+    if (batch.isEmpty) {
+      showQuickSnack(context, '没有喜爱数超过 $_batchLikesMin 的视频');
       return;
     }
     setState(() => _downloadingPopular = true);
-    final app = AppScope.of(context);
-    final seen = <String>{};
-    var queued = 0;
+    var done = 0;
     try {
-      for (final item in items) {
-        final key = item.post.id.trim().isEmpty
-            ? item.post.url.trim()
-            : item.post.id.trim();
-        if (key.isEmpty || !seen.add(key)) {
-          continue;
+      showQuickSnack(context, '开始下载 ${batch.length} 个视频');
+      for (final item in batch) {
+        if (!mounted) {
+          return;
         }
-        queued += 1;
-        unawaited(
-          app.downloadVideo(
-            url: item.post.url,
-            title: item.post.text,
-            quality: VideoQuality.best,
-          ),
+        await app.downloadVideo(
+          url: item.post.url,
+          title: item.post.text,
+          quality: VideoQuality.best,
         );
+        done += 1;
       }
     } finally {
       if (mounted) {
@@ -247,11 +285,7 @@ class _VideoPageState extends State<VideoPage> {
     if (!mounted) {
       return;
     }
-    if (queued <= 0) {
-      showQuickSnack(context, '没有喜爱数超过 $_popularLikesMin 的视频');
-      return;
-    }
-    showQuickSnack(context, '已加入下载：$queued 个视频');
+    showQuickSnack(context, '已下载 $done 个视频');
   }
 
   int _columns(BuildContext context) {
