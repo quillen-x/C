@@ -233,7 +233,7 @@ class _XFeedPageState extends State<XFeedPage> {
           title: _loading ? '正在加载帖子' : '暂时没有帖子',
           detail: _loading
               ? '正在读取特别关注的人。'
-              : '只显示近 72 小时内、每人最新 5 条。点右下角刷新。',
+              : '只显示近 ${MediaLoadConfig.defaultHours} 小时内、每人最新 5 条。点右下角刷新。',
         ),
       );
     }

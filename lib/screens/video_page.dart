@@ -32,9 +32,6 @@ class _VideoPageState extends State<VideoPage> {
   String _loadedCategoryKey = '';
   int _loadId = 0;
 
-  static const _batchDownloadCount = 5;
-  static const _batchLikesMin = 100;
-
   String _categoryWatchKey(AppController app) {
     return app.settings.visibleCategories.join('|');
   }
@@ -233,12 +230,13 @@ class _VideoPageState extends State<VideoPage> {
       return;
     }
     final app = AppScope.of(context);
+    final load = app.settings.videoLoad;
     final seen = <String>{};
     final batch = <_FollowedVideo>[];
     for (final item in _videos) {
       final key = _postKey(item);
       final url = item.post.url.trim();
-      if (item.post.likes <= _batchLikesMin) {
+      if (!load.allowsLikes(item.post.likes)) {
         continue;
       }
       if (key.isEmpty || url.isEmpty || !seen.add(key)) {
@@ -254,12 +252,14 @@ class _VideoPageState extends State<VideoPage> {
         continue;
       }
       batch.add(item);
-      if (batch.length >= _batchDownloadCount) {
-        break;
-      }
     }
     if (batch.isEmpty) {
-      showQuickSnack(context, '没有喜爱数超过 $_batchLikesMin 的视频');
+      showQuickSnack(
+        context,
+        load.minLikes > 0
+            ? '没有喜爱数达到 ${load.minLikes} 的视频'
+            : '没有可下载的视频',
+      );
       return;
     }
     setState(() => _downloadingPopular = true);

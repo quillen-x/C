@@ -28,8 +28,6 @@ class _XPhotosPageState extends State<XPhotosPage> {
   String? _error;
   int _loadId = 0;
 
-  static const _popularLikesMin = 1000;
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -181,10 +179,11 @@ class _XPhotosPageState extends State<XPhotosPage> {
       return;
     }
     final app = AppScope.of(context);
+    final load = app.settings.photoLoad;
     final seen = <String>{};
     final batch = <_FollowedPhoto>[];
     for (final item in _photos) {
-      if (item.post.likes <= _popularLikesMin) {
+      if (!load.allowsLikes(item.post.likes)) {
         continue;
       }
       final url = _photoUrl(item);
@@ -197,7 +196,12 @@ class _XPhotosPageState extends State<XPhotosPage> {
       batch.add(item);
     }
     if (batch.isEmpty) {
-      showQuickSnack(context, '没有喜爱数超过 $_popularLikesMin 的图片');
+      showQuickSnack(
+        context,
+        load.minLikes > 0
+            ? '没有喜爱数达到 ${load.minLikes} 的图片'
+            : '没有可下载的图片',
+      );
       return;
     }
     setState(() => _downloadingPopular = true);

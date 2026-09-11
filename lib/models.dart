@@ -85,9 +85,9 @@ class CategoryMediaConfig {
 }
 
 class MediaLoadConfig {
-  static const defaultHours = 72;
+  static const defaultHours = 24;
   static const defaultPerUser = 5;
-  static const defaultMinLikes = 100;
+  static const defaultMinLikes = 500;
   static const defaultMinDurationMinutes = 2;
   static const defaultMaxDurationMinutes = 30;
 
