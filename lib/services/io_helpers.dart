@@ -496,11 +496,15 @@ class IoHelpers {
     required bool isVideo,
     DateTime? date,
   }) {
+    final raw = category.trim();
     final cat = sanitizeFileName(
-      category.trim().isEmpty ? '未分类' : category.trim(),
+      raw.isEmpty || raw == '未分类' ? '' : raw,
     );
     final day = formatSaveDate(date ?? DateTime.now());
     final kind = mediaKindFolder(isVideo: isVideo);
+    if (cat.isEmpty) {
+      return ensureDownloadDir('$downloadDir/$day/$kind');
+    }
     return ensureDownloadDir('$downloadDir/$cat/$day/$kind');
   }
 

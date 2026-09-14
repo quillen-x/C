@@ -765,7 +765,7 @@ class XFollowingService {
           if (!_isRecent(post, maxAge)) {
             return false;
           }
-          if (minLikes > 0 && post.likes < minLikes) {
+          if (minLikes > 0 && post.likes <= minLikes) {
             return false;
           }
           if (keep != null && !keep(post)) {

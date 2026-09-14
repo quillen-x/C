@@ -199,7 +199,7 @@ class _XPhotosPageState extends State<XPhotosPage> {
       showQuickSnack(
         context,
         load.minLikes > 0
-            ? '没有喜爱数达到 ${load.minLikes} 的图片'
+            ? '没有喜爱数超过 ${load.minLikes} 的图片'
             : '没有可下载的图片',
       );
       return;

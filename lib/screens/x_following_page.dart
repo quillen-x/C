@@ -27,6 +27,7 @@ class _XFeedPageState extends State<XFeedPage> {
   bool _started = false;
   bool _autoLoadScheduled = false;
   bool _noSpecial = false;
+  bool _downloadingPopular = false;
   String? _error;
   int _loadId = 0;
 
@@ -92,8 +93,12 @@ class _XFeedPageState extends State<XFeedPage> {
         });
         return;
       }
+      final load = app.settings.videoLoad;
       final posts = await app.xFollowingService.fetchRecentFeed(
         names,
+        hours: MediaLoadConfig.defaultHours,
+        perUser: MediaLoadConfig.defaultPerUser,
+        minLikes: load.minLikes,
         onProgress: (items, done, total) {
           if (!mounted || id != _loadId) {
             return;
@@ -159,6 +164,77 @@ class _XFeedPageState extends State<XFeedPage> {
     showDownloadTaskSnack(context, task);
   }
 
+  String _postKey(XPost post) {
+    final id = post.id.trim();
+    if (id.isNotEmpty) {
+      return id;
+    }
+    return post.url.trim();
+  }
+
+  Future<void> _downloadPopular() async {
+    if (_downloadingPopular) {
+      return;
+    }
+    final app = AppScope.of(context);
+    final load = app.settings.videoLoad;
+    final seen = <String>{};
+    final batch = <XPost>[];
+    for (final post in _posts) {
+      if (!load.allowsLikes(post.likes) || !post.hasVideo) {
+        continue;
+      }
+      final key = _postKey(post);
+      final url = post.url.trim();
+      if (key.isEmpty || url.isEmpty || !seen.add(key)) {
+        continue;
+      }
+      if (app.activeTaskFor(url) != null) {
+        continue;
+      }
+      if (app.findExistingDownload(url) != null) {
+        continue;
+      }
+      if (await app.findExistingPostVideoPath(url) != null) {
+        continue;
+      }
+      batch.add(post);
+    }
+    if (batch.isEmpty) {
+      showQuickSnack(
+        context,
+        load.minLikes > 0
+            ? '没有喜爱数超过 ${load.minLikes} 的视频'
+            : '没有可下载的视频',
+      );
+      return;
+    }
+    setState(() => _downloadingPopular = true);
+    var done = 0;
+    try {
+      showQuickSnack(context, '开始下载 ${batch.length} 个视频');
+      for (final post in batch) {
+        if (!mounted) {
+          return;
+        }
+        await app.downloadVideo(
+          url: post.url,
+          title: post.text,
+          quality: VideoQuality.best,
+        );
+        done += 1;
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _downloadingPopular = false);
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    showQuickSnack(context, '已下载 $done 个视频');
+  }
+
   @override
   Widget build(BuildContext context) {
     final names = AppScope.of(context).settings.xFollowing;
@@ -166,7 +242,12 @@ class _XFeedPageState extends State<XFeedPage> {
       fit: StackFit.expand,
       children: [
         _buildBody(names.isEmpty),
-        RefreshFab(onPressed: _load, busy: _loading),
+        MediaHubFabs(
+          onRefresh: _load,
+          refreshBusy: _loading,
+          onDownload: _downloadPopular,
+          downloadBusy: _downloadingPopular,
+        ),
       ],
     );
   }
@@ -233,7 +314,7 @@ class _XFeedPageState extends State<XFeedPage> {
           title: _loading ? '正在加载帖子' : '暂时没有帖子',
           detail: _loading
               ? '正在读取特别关注的人。'
-              : '只显示近 ${MediaLoadConfig.defaultHours} 小时内、每人最新 5 条。点右下角刷新。',
+              : '只显示近 ${MediaLoadConfig.defaultHours} 小时内、喜爱数超过 ${AppScope.of(context).settings.videoLoad.minLikes}、每人最新 5 条。点右下角刷新。',
         ),
       );
     }

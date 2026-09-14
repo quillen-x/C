@@ -74,6 +74,44 @@ class AppController extends ChangeNotifier {
     return named.first;
   }
 
+  /// 当前打开的分类目录名。下载的图片/视频都进这个分类，不建「未分类」。
+  String downloadFolderCategory({String? accountCategory}) {
+    final visible = settings.visibleCategories
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+    final accountKey = (accountCategory ?? '').trim();
+    if (accountKey.isNotEmpty) {
+      for (final item in visible) {
+        if (item.toLowerCase() == accountKey.toLowerCase() ||
+            XAccount.categoryLabel(item) ==
+                XAccount.categoryLabel(accountKey)) {
+          return XAccount.categoryLabel(item);
+        }
+      }
+    }
+    if (visible.isNotEmpty) {
+      return XAccount.categoryLabel(visible.first);
+    }
+    if (accountKey.isNotEmpty) {
+      final label = XAccount.categoryLabel(accountKey);
+      if (label.isNotEmpty && label != '未分类') {
+        return label;
+      }
+    }
+    for (final item in settings.categories) {
+      final key = item.trim();
+      if (key.isEmpty) {
+        continue;
+      }
+      final label = XAccount.categoryLabel(key);
+      if (label.isNotEmpty && label != '未分类') {
+        return label;
+      }
+    }
+    return XAccount.categoryLabel(followCategory);
+  }
+
   XAccount taggedForFollow(XAccount account, {String? category}) {
     final key = (category ?? followCategory).trim().toLowerCase();
     return account.copyWith(category: key);
@@ -369,7 +407,7 @@ class AppController extends ChangeNotifier {
       next.categories = <String>[...next.categories, key];
     }
     if (show && !shown) {
-      next.visibleCategories = <String>[...next.visibleCategories, key];
+      next.visibleCategories = <String>[key];
     }
     await saveSettings(next);
   }
@@ -803,11 +841,11 @@ class AppController extends ChangeNotifier {
       }
       final task = enqueue(title: title, sourceUrl: source);
       return await _run(task, () async {
-        var category = '未分类';
+        var accountCategory = '';
         if (user.isNotEmpty) {
           final account = await accountDb.get(user);
           if (account != null) {
-            category = XAccount.categoryLabel(account.category);
+            accountCategory = account.category;
             if (name.isEmpty) {
               name = account.name.trim();
             }
@@ -815,7 +853,7 @@ class AppController extends ChangeNotifier {
         }
         final dir = await IoHelpers.ensurePhotoSaveDir(
           downloadDir: settings.downloadDir,
-          category: category,
+          category: downloadFolderCategory(accountCategory: accountCategory),
           isVideo: IoHelpers.isVideoFile('file$ext') ||
               ext.toLowerCase().contains('m4a'),
         );
@@ -869,17 +907,17 @@ class AppController extends ChangeNotifier {
       }
       final task = enqueue(title: title, sourceUrl: source);
       return await _run(task, () async {
-        var category = '未分类';
+        var accountCategory = '';
         final username = XFollowingService.extractUsername(source) ?? '';
         if (username.isNotEmpty) {
           final account = await accountDb.get(username);
           if (account != null) {
-            category = XAccount.categoryLabel(account.category);
+            accountCategory = account.category;
           }
         }
         final dir = await IoHelpers.ensurePhotoSaveDir(
           downloadDir: settings.downloadDir,
-          category: category,
+          category: downloadFolderCategory(accountCategory: accountCategory),
           isVideo: true,
         );
         return xVideo.download(

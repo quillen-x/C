@@ -257,7 +257,7 @@ class _VideoPageState extends State<VideoPage> {
       showQuickSnack(
         context,
         load.minLikes > 0
-            ? '没有喜爱数达到 ${load.minLikes} 的视频'
+            ? '没有喜爱数超过 ${load.minLikes} 的视频'
             : '没有可下载的视频',
       );
       return;

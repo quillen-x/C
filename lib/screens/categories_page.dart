@@ -560,10 +560,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
   Future<void> _toggleCategory(String category, bool enabled) async {
     setState(() {
       final key = category.trim().toLowerCase();
-      _visibleCategories.removeWhere((item) => item.trim().toLowerCase() == key);
-      if (enabled) {
-        _visibleCategories.add(key);
-      }
+      _visibleCategories = enabled && key.isNotEmpty ? <String>[key] : <String>[];
     });
     await _save();
   }

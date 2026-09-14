@@ -299,19 +299,19 @@ class _PhotoViewerPageState extends State<_PhotoViewerPage>
         throw StateError('没有可下载的图片地址');
       }
       final username = widget.username.trim().replaceFirst(RegExp(r'^@'), '');
-      var category = '未分类';
+      var accountCategory = '';
       var displayName = widget.displayName.trim();
       if (username.isNotEmpty) {
         final accounts = await app.accountDb.loadMap();
         final account = accounts[username.toLowerCase()];
-        category = XAccount.categoryLabel(account?.category ?? '');
+        accountCategory = account?.category ?? '';
         if (displayName.isEmpty) {
           displayName = (account?.name ?? '').trim();
         }
       }
       final dir = await IoHelpers.ensurePhotoSaveDir(
         downloadDir: app.settings.downloadDir,
-        category: category,
+        category: app.downloadFolderCategory(accountCategory: accountCategory),
         isVideo: false,
       );
       final path = await _savePhoto(

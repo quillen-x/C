@@ -87,7 +87,7 @@ class CategoryMediaConfig {
 class MediaLoadConfig {
   static const defaultHours = 24;
   static const defaultPerUser = 5;
-  static const defaultMinLikes = 500;
+  static const defaultMinLikes = 200;
   static const defaultMinDurationMinutes = 2;
   static const defaultMaxDurationMinutes = 30;
 
@@ -109,7 +109,7 @@ class MediaLoadConfig {
   int minDurationMinutes;
   int maxDurationMinutes;
 
-  bool allowsLikes(int likes) => minLikes <= 0 || likes >= minLikes;
+  bool allowsLikes(int likes) => minLikes <= 0 || likes > minLikes;
 
   bool allowsDuration(int seconds) {
     final minSec = minDurationMinutes * 60;
@@ -219,9 +219,7 @@ class AppSettings {
         xFollowing = xFollowing == null
             ? <String>[]
             : List<String>.from(xFollowing),
-        visibleCategories = visibleCategories == null
-            ? <String>[]
-            : List<String>.from(visibleCategories),
+        visibleCategories = exclusiveVisible(visibleCategories),
         categories = categories == null
             ? <String>[]
             : List<String>.from(categories),
@@ -263,6 +261,20 @@ class AppSettings {
       return null;
     }
     return 'http://$address';
+  }
+
+  /// 同时最多打开一个分类；空列表表示全关。
+  static List<String> exclusiveVisible(Iterable<String>? raw) {
+    if (raw == null) {
+      return <String>[];
+    }
+    for (final item in raw) {
+      final key = item.trim().toLowerCase();
+      if (key.isNotEmpty) {
+        return <String>[key];
+      }
+    }
+    return <String>[];
   }
 
   bool showsCategory(String category) {
