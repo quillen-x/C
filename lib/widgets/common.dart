@@ -425,6 +425,7 @@ class AppNetworkImage extends StatelessWidget {
     this.filterQuality = FilterQuality.medium,
     this.placeholder,
     this.error,
+    this.httpHeaders,
   });
 
   static const headers = <String, String>{
@@ -441,6 +442,7 @@ class AppNetworkImage extends StatelessWidget {
   final FilterQuality filterQuality;
   final Widget? placeholder;
   final Widget? error;
+  final Map<String, String>? httpHeaders;
 
   @override
   Widget build(BuildContext context) {
@@ -467,7 +469,7 @@ class AppNetworkImage extends StatelessWidget {
   Widget _image(int? cacheWidth, Widget fallback) {
     return CachedNetworkImage(
       imageUrl: url.trim(),
-      httpHeaders: headers,
+      httpHeaders: httpHeaders ?? headers,
       fit: fit,
       width: width,
       height: height,

@@ -396,11 +396,17 @@ class IoHelpers {
     String url,
     String path, {
     required void Function(double progress, String speed) onProgress,
+    String? referer,
   }) async {
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        await _downloadFileOnce(url, path, onProgress: onProgress);
+        await _downloadFileOnce(
+          url,
+          path,
+          onProgress: onProgress,
+          referer: referer,
+        );
         return;
       } catch (error) {
         lastError = error;
@@ -424,15 +430,17 @@ class IoHelpers {
     String url,
     String path, {
     required void Function(double progress, String speed) onProgress,
+    String? referer,
   }) async {
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 20);
     client.idleTimeout = const Duration(minutes: 10);
+    client.autoUncompress = false;
     client.userAgent =
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
     try {
       final request = await client.getUrl(Uri.parse(url));
-      request.headers.set('Referer', 'https://x.com/');
+      request.headers.set('Referer', referer ?? 'https://x.com/');
       request.followRedirects = true;
       request.maxRedirects = 8;
       final response = await request.close().timeout(const Duration(seconds: 120));

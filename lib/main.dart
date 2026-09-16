@@ -9,6 +9,7 @@ import 'app_controller.dart';
 import 'models.dart';
 import 'screens/categories_page.dart';
 import 'screens/downloads_page.dart';
+import 'screens/porn91_page.dart';
 import 'screens/settings_page.dart';
 import 'screens/video_page.dart';
 import 'screens/x_accounts_page.dart';
@@ -106,6 +107,7 @@ class _RootState extends State<_Root> {
   static const _stackOrder = <AppPage>[
     AppPage.search,
     AppPage.xFeed,
+    AppPage.porn91,
     AppPage.xPhotos,
     AppPage.x,
     AppPage.xFollowing,
@@ -127,6 +129,7 @@ class _RootState extends State<_Root> {
     _ensurePage(_page);
     _ensurePage(AppPage.downloads);
     _ensurePage(AppPage.xFeed);
+    _ensurePage(AppPage.porn91);
     _ensurePage(AppPage.xPhotos);
     _ensurePage(AppPage.x);
     _ensurePage(AppPage.xFollowing);
@@ -151,6 +154,7 @@ class _RootState extends State<_Root> {
         }
         _mediaPage = page;
         _ensurePage(AppPage.xFeed);
+        _ensurePage(AppPage.porn91);
         _ensurePage(AppPage.xPhotos);
         _ensurePage(AppPage.x);
       }
@@ -287,6 +291,8 @@ class _RootState extends State<_Root> {
     switch (page) {
       case AppPage.xFeed:
         return XFeedPage(key: key);
+      case AppPage.porn91:
+        return Porn91Page(key: key);
       case AppPage.xPhotos:
         return XPhotosPage(key: key);
       case AppPage.search:

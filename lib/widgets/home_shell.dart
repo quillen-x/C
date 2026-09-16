@@ -15,6 +15,7 @@ import 'phone_routes.dart';
 class _NavAssets {
   static const search = 'assets/images/search.svg';
   static const media = 'assets/images/media.svg';
+  static const video = 'assets/images/video.svg';
   static const following = 'assets/images/single_focus.svg';
   static const download = 'assets/images/download.svg';
   static const category = 'assets/images/focus.svg';
@@ -169,21 +170,23 @@ class _BottomNavState extends State<_BottomNav> with SingleTickerProviderStateMi
       case AppPage.x:
       case AppPage.search:
         return 0;
+      case AppPage.porn91:
+        return 1;
       case AppPage.xFollowing:
       case AppPage.xAccounts:
       case AppPage.categories:
-        return 1;
-      case AppPage.downloads:
         return 2;
-      case AppPage.settings:
+      case AppPage.downloads:
         return 3;
+      case AppPage.settings:
+        return 4;
     }
   }
 
   @override
   void initState() {
     super.initState();
-    _controller = TabController(length: 4, vsync: this, initialIndex: _index);
+    _controller = TabController(length: 5, vsync: this, initialIndex: _index);
   }
 
   @override
@@ -209,12 +212,15 @@ class _BottomNavState extends State<_BottomNav> with SingleTickerProviderStateMi
         }
         break;
       case 1:
-        widget.onSelect(AppPage.xFollowing);
+        widget.onSelect(AppPage.porn91);
         break;
       case 2:
-        widget.onSelect(AppPage.downloads);
+        widget.onSelect(AppPage.xFollowing);
         break;
       case 3:
+        widget.onSelect(AppPage.downloads);
+        break;
+      case 4:
         widget.onSelect(AppPage.settings);
         break;
     }
@@ -254,6 +260,12 @@ class _BottomNavState extends State<_BottomNav> with SingleTickerProviderStateMi
             iconMargin: EdgeInsets.only(bottom: 4),
             icon: _NavSvg(asset: _NavAssets.media, size: iconSize),
             text: '动态',
+          ),
+          const Tab(
+            height: 56,
+            iconMargin: EdgeInsets.only(bottom: 4),
+            icon: _NavSvg(asset: _NavAssets.video, size: iconSize),
+            text: '每月最佳',
           ),
           const Tab(
             height: 56,
@@ -325,6 +337,13 @@ class _Sidebar extends StatelessWidget {
                 onSelect(AppPage.xFeed);
               }
             },
+          ),
+          _NavItem(
+            icon: _NavAssets.video,
+            label: '每月最佳',
+            selected: page == AppPage.porn91,
+            color: AppColors.accent,
+            onTap: () => onSelect(AppPage.porn91),
           ),
           _NavItem(
             icon: _NavAssets.following,

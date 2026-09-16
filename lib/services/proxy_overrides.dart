@@ -10,7 +10,7 @@ class ProxyHttpOverrides extends HttpOverrides {
   HttpClient createHttpClient(SecurityContext? context) {
     final client = super.createHttpClient(context);
     client.connectionTimeout = const Duration(seconds: 20);
-    client.idleTimeout = const Duration(seconds: 30);
+    client.idleTimeout = const Duration(minutes: 10);
     client.userAgent = 'MediaDownloader/1.0 (Flutter macOS)';
     final address = proxyAddress?.trim();
     if (address != null && address.isNotEmpty) {

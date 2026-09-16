@@ -1,5 +1,6 @@
 enum AppPage {
   xFeed,
+  porn91,
   xPhotos,
   xFollowing,
   xAccounts,
@@ -47,6 +48,8 @@ class CategoryMediaConfig {
     switch (page) {
       case AppPage.xFeed:
         return posts;
+      case AppPage.porn91:
+        return true;
       case AppPage.xPhotos:
         return photos;
       case AppPage.x:

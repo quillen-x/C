@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'models.dart';
 import 'services/account_db.dart';
 import 'services/io_helpers.dart';
+import 'services/porn91_service.dart';
 import 'services/proxy_overrides.dart';
 import 'services/x_following_service.dart';
 import 'services/x_trends_service.dart';
@@ -24,6 +25,8 @@ class AppController extends ChangeNotifier {
   XTrendsService get xTrends => XTrendsService(settings);
   XFollowingService get xFollowingService => XFollowingService(settings);
   XVideoService get xVideo => XVideoService(settings);
+  Porn91Service? _porn91;
+  Porn91Service get porn91 => _porn91 ??= Porn91Service(settings);
 
   int get activeCount => tasks
       .where((task) =>
@@ -878,6 +881,43 @@ class AppController extends ChangeNotifier {
           },
         );
         return path;
+      });
+    } finally {
+      _unmarkStarting(source);
+    }
+  }
+
+  Future<DownloadTask> downloadPorn91(Porn91Video video) async {
+    final source = video.pageUrl;
+    final title = video.title.trim().isEmpty ? video.viewkey : video.title.trim();
+    final skipped = _skipIfAlreadyDownloaded(sourceUrl: source, title: title);
+    if (skipped != null) {
+      return skipped;
+    }
+    if (!_markStarting(source)) {
+      return _listedOrQueued(sourceUrl: source, title: title);
+    }
+    try {
+      final again = _skipIfAlreadyDownloaded(sourceUrl: source, title: title);
+      if (again != null) {
+        return again;
+      }
+      final task = enqueue(title: title, sourceUrl: source);
+      return await _run(task, () async {
+        final dir = await IoHelpers.ensurePhotoSaveDir(
+          downloadDir: settings.downloadDir,
+          category: '每月最佳',
+          isVideo: true,
+        );
+        return porn91.download(
+          video: video,
+          dir: dir.path,
+          onProgress: (progress, speed) {
+            task.progress = progress;
+            task.speed = speed;
+            notifyListeners();
+          },
+        );
       });
     } finally {
       _unmarkStarting(source);
