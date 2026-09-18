@@ -15,12 +15,20 @@ class AppController extends ChangeNotifier {
   static const _sexInactiveDays = 180;
   static const sexVideoMinDurationSeconds = 120;
   static const sexVideoMaxDurationSeconds = 1800;
+  static const monthlyBestDays = <int>{1, 10, 20};
 
   AppSettings settings = AppSettings();
   final List<DownloadTask> tasks = <DownloadTask>[];
   final AccountDb accountDb = AccountDb();
   bool ready = false;
   String? loadError;
+  bool _scheduledRunning = false;
+  bool _scheduledJob = false;
+
+  static File get _scheduledJobFlag {
+    final home = Platform.environment['HOME'] ?? IoHelpers.homeDir;
+    return File('$home/.media_downloader_scheduled_job');
+  }
 
   XTrendsService get xTrends => XTrendsService(settings);
   XFollowingService get xFollowingService => XFollowingService(settings);
@@ -34,6 +42,7 @@ class AppController extends ChangeNotifier {
       .length;
 
   Future<void> init() async {
+    _scheduledJob = _consumeScheduledJobFlag();
     try {
       await IoHelpers.init();
       settings = await IoHelpers.loadSettings();
@@ -47,6 +56,268 @@ class AppController extends ChangeNotifier {
       ready = true;
       notifyListeners();
     }
+    if (loadError == null) {
+      await runScheduledDownloads();
+    }
+    if (_scheduledJob) {
+      await _waitUntilDownloadsIdle();
+      exit(0);
+    }
+  }
+
+  bool _consumeScheduledJobFlag() {
+    final file = _scheduledJobFlag;
+    if (!file.existsSync()) {
+      return false;
+    }
+    try {
+      file.deleteSync();
+    } catch (_) {}
+    return true;
+  }
+
+  Future<void> _waitUntilDownloadsIdle() async {
+    final deadline = DateTime.now().add(const Duration(hours: 6));
+    while (DateTime.now().isBefore(deadline)) {
+      if (activeCount <= 0 && !_scheduledRunning) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (activeCount <= 0 && !_scheduledRunning) {
+          return;
+        }
+      }
+      await Future<void>.delayed(const Duration(seconds: 3));
+    }
+  }
+
+  /// 启动时调用；之后定时任务也可直接调这个方法。
+  /// 当前分类是 sex 时先下图片再下视频；1/10/20 号再下一键每月最佳。
+  Future<void> runScheduledDownloads({DateTime? now}) async {
+    if (_scheduledRunning || !settings.showsCategory(XAccount.sexCategoryKey)) {
+      return;
+    }
+    _scheduledRunning = true;
+    try {
+      try {
+        await _downloadSpecialPhotos();
+      } catch (_) {}
+      try {
+        await _downloadSpecialVideos();
+      } catch (_) {}
+      if (monthlyBestDays.contains((now ?? DateTime.now()).day)) {
+        try {
+          await _downloadMonthlyBest();
+        } catch (_) {}
+      }
+    } finally {
+      _scheduledRunning = false;
+    }
+  }
+
+  Future<void> _downloadSpecialPhotos() async {
+    final names = await visibleUsernames(
+      specialOnly: true,
+      mediaPage: AppPage.xPhotos,
+    );
+    if (names.isEmpty) {
+      return;
+    }
+    final batch = await xFollowingService.fetchPhotoFeed(names);
+    final accountMap = await accountDb.loadMap();
+    final photos = _flattenPhotos(batch.posts, accountMap: accountMap);
+    final load = settings.photoLoad;
+    final seen = <String>{};
+    for (final item in photos) {
+      if (!load.allowsLikes(item.post.likes)) {
+        continue;
+      }
+      final url = _photoUrl(item.media);
+      if (url.isEmpty || !seen.add(url)) {
+        continue;
+      }
+      if (isInDownloadList(url) || findExistingDownload(url) != null) {
+        continue;
+      }
+      await downloadDirectMedia(
+        url: url,
+        username: item.post.username,
+        displayName: item.post.displayName,
+        ext: _photoExtFromUrl(url),
+      );
+    }
+  }
+
+  Future<void> _downloadSpecialVideos() async {
+    final accounts = await visibleAccounts(
+      specialOnly: true,
+      mediaPage: AppPage.x,
+    );
+    if (accounts.isEmpty) {
+      return;
+    }
+    final accountMap = <String, XAccount>{
+      for (final account in accounts) account.username.toLowerCase(): account,
+    };
+    final batch = await xFollowingService.fetchVideoFeed(
+      accounts.map((account) => account.username).toList(),
+    );
+    final videos = _flattenVideos(batch.posts, accountMap: accountMap);
+    final load = settings.videoLoad;
+    final seen = <String>{};
+    for (final item in videos) {
+      final key = _postKey(item.post);
+      final url = item.post.url.trim();
+      if (!load.allowsLikes(item.post.likes)) {
+        continue;
+      }
+      if (key.isEmpty || url.isEmpty || !seen.add(key)) {
+        continue;
+      }
+      if (activeTaskFor(url) != null || findExistingDownload(url) != null) {
+        continue;
+      }
+      if (await findExistingPostVideoPath(url) != null) {
+        continue;
+      }
+      await downloadVideo(
+        url: url,
+        title: item.post.text,
+        quality: VideoQuality.best,
+      );
+    }
+  }
+
+  Future<void> _downloadMonthlyBest() async {
+    final videos = await porn91.fetchTopVideos();
+    for (final video in videos) {
+      if (activeTaskFor(video.pageUrl) != null) {
+        continue;
+      }
+      if (findExistingDownload(video.pageUrl) != null) {
+        continue;
+      }
+      if (await porn91.hasDownloaded(video)) {
+        continue;
+      }
+      await downloadPorn91(video);
+    }
+  }
+
+  List<_JobMedia> _flattenPhotos(
+    List<XPost> posts, {
+    required Map<String, XAccount> accountMap,
+  }) {
+    final photos = <_JobMedia>[];
+    for (final raw in posts) {
+      var post = raw;
+      final account = accountMap[post.username.toLowerCase()];
+      if (account != null &&
+          (post.avatarUrl.isEmpty || post.authorName.isEmpty)) {
+        post = post.copyWith(
+          avatarUrl: post.avatarUrl.isNotEmpty ? post.avatarUrl : account.avatarUrl,
+          authorName: post.authorName.isNotEmpty ? post.authorName : account.name,
+        );
+      }
+      for (final media in post.media) {
+        if (media.kind == XMediaKind.photo) {
+          photos.add(_JobMedia(post: post, media: media));
+        }
+      }
+    }
+    photos.sort((a, b) => b.post.likes.compareTo(a.post.likes));
+    final load = settings.photoLoad;
+    final postCounts = <String, int>{};
+    final keptPosts = <String>{};
+    return photos.where((item) {
+      if (!load.allowsLikes(item.post.likes)) {
+        return false;
+      }
+      final postId = _postKey(item.post);
+      if (postId.isNotEmpty && keptPosts.contains(postId)) {
+        return true;
+      }
+      final key = item.post.username.toLowerCase();
+      final n = postCounts[key] ?? 0;
+      if (n >= load.perUser) {
+        return false;
+      }
+      postCounts[key] = n + 1;
+      if (postId.isNotEmpty) {
+        keptPosts.add(postId);
+      }
+      return true;
+    }).toList();
+  }
+
+  List<_JobMedia> _flattenVideos(
+    List<XPost> posts, {
+    required Map<String, XAccount> accountMap,
+  }) {
+    final videos = <_JobMedia>[];
+    for (final raw in posts) {
+      var post = raw;
+      final account = accountMap[post.username.toLowerCase()];
+      if (account != null &&
+          (post.avatarUrl.isEmpty || post.authorName.isEmpty)) {
+        post = post.copyWith(
+          avatarUrl: post.avatarUrl.isNotEmpty ? post.avatarUrl : account.avatarUrl,
+          authorName: post.authorName.isNotEmpty ? post.authorName : account.name,
+        );
+      }
+      for (final media in post.media) {
+        if (!allowsVideoTabMedia(account, media)) {
+          continue;
+        }
+        videos.add(_JobMedia(post: post, media: media));
+      }
+    }
+    videos.sort((a, b) => b.post.likes.compareTo(a.post.likes));
+    final load = settings.videoLoad;
+    final counts = <String, int>{};
+    return videos.where((item) {
+      if (!load.allowsLikes(item.post.likes)) {
+        return false;
+      }
+      final key = item.post.username.toLowerCase();
+      final n = counts[key] ?? 0;
+      if (n >= load.perUser) {
+        return false;
+      }
+      counts[key] = n + 1;
+      return true;
+    }).toList();
+  }
+
+  String _postKey(XPost post) {
+    final id = post.id.trim();
+    if (id.isNotEmpty) {
+      return id;
+    }
+    return post.url.trim();
+  }
+
+  String _photoUrl(XMedia media) {
+    final original = media.originalUrl.trim();
+    if (original.isNotEmpty) {
+      return original;
+    }
+    return media.url.trim();
+  }
+
+  String _photoExtFromUrl(String url) {
+    final uri = Uri.tryParse(url);
+    final format = uri?.queryParameters['format']?.toLowerCase() ?? '';
+    final path = (uri?.path ?? url).toLowerCase();
+    final hay = '$path $format';
+    if (hay.contains('png')) {
+      return '.png';
+    }
+    if (hay.contains('gif')) {
+      return '.gif';
+    }
+    if (hay.contains('webp')) {
+      return '.webp';
+    }
+    return '.jpg';
   }
 
   Future<void> saveSettings(AppSettings next) async {
@@ -894,6 +1165,9 @@ class AppController extends ChangeNotifier {
     if (skipped != null) {
       return skipped;
     }
+    if (await porn91.hasDownloaded(video)) {
+      return _skippedPorn91(title: title, sourceUrl: source);
+    }
     if (!_markStarting(source)) {
       return _listedOrQueued(sourceUrl: source, title: title);
     }
@@ -902,14 +1176,13 @@ class AppController extends ChangeNotifier {
       if (again != null) {
         return again;
       }
+      if (await porn91.hasDownloaded(video)) {
+        return _skippedPorn91(title: title, sourceUrl: source);
+      }
       final task = enqueue(title: title, sourceUrl: source);
       return await _run(task, () async {
-        final dir = await IoHelpers.ensurePhotoSaveDir(
-          downloadDir: settings.downloadDir,
-          category: '每月最佳',
-          isVideo: true,
-        );
-        return porn91.download(
+        final dir = await IoHelpers.ensureMonthlyDownloadDir(settings.downloadDir);
+        final path = await porn91.download(
           video: video,
           dir: dir.path,
           onProgress: (progress, speed) {
@@ -918,6 +1191,8 @@ class AppController extends ChangeNotifier {
             notifyListeners();
           },
         );
+        await porn91.markDownloaded(video);
+        return path;
       });
     } finally {
       _unmarkStarting(source);
@@ -990,6 +1265,20 @@ class AppController extends ChangeNotifier {
         );
   }
 
+  DownloadTask _skippedPorn91({
+    required String title,
+    required String sourceUrl,
+  }) {
+    return DownloadTask(
+      id: IoHelpers.uniqueId(),
+      kind: DownloadKind.x,
+      title: title,
+      sourceUrl: sourceUrl,
+      status: TaskStatus.done,
+      progress: 1,
+    )..alreadyDownloaded = true;
+  }
+
   Future<DownloadTask> _run(
     DownloadTask task,
     Future<String> Function() work,
@@ -1038,6 +1327,13 @@ class AppController extends ChangeNotifier {
     accountDb.close();
     super.dispose();
   }
+}
+
+class _JobMedia {
+  const _JobMedia({required this.post, required this.media});
+
+  final XPost post;
+  final XMedia media;
 }
 
 class CategoryAssignResult {

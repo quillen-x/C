@@ -19,83 +19,42 @@ class Porn91Page extends StatefulWidget {
 }
 
 class _Porn91PageState extends State<Porn91Page> {
-  final ScrollController _scroll = ScrollController();
+  static const _maxPages = 2;
+
   final List<Porn91Video> _videos = <Porn91Video>[];
   bool _loading = false;
-  bool _loadingMore = false;
   bool _started = false;
-  bool _hasMore = true;
   bool _downloadingPopular = false;
   String? _error;
-  int _page = 0;
   int _loadId = 0;
 
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _load(reset: true);
+        _load();
       }
     });
   }
 
-  @override
-  void dispose() {
-    _scroll
-      ..removeListener(_onScroll)
-      ..dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    if (_loading || _loadingMore || !_hasMore) {
-      return;
-    }
-    if (!_scroll.hasClients) {
-      return;
-    }
-    final position = _scroll.position;
-    if (position.pixels > position.maxScrollExtent - 720) {
-      _load();
-    }
-  }
-
-  Future<void> _load({bool reset = false}) async {
-    if (reset) {
-      if (_loading) {
-        return;
-      }
-    } else if (_loading || _loadingMore || !_hasMore) {
+  Future<void> _load() async {
+    if (_loading) {
       return;
     }
     final id = ++_loadId;
     setState(() {
       _started = true;
       _error = null;
-      if (reset) {
-        _loading = true;
-        _page = 0;
-        _hasMore = true;
-        _videos.clear();
-      } else {
-        _loadingMore = true;
-      }
+      _loading = true;
+      _videos.clear();
     });
     try {
-      final nextPage = _page + 1;
-      final result = await AppScope.of(context).porn91.fetchIndex(page: nextPage);
+      final videos = await AppScope.of(context).porn91.fetchTopVideos(pages: _maxPages);
       if (!mounted || id != _loadId) {
         return;
       }
-      final seen = _videos.map((item) => item.viewkey).toSet();
-      final added = result.videos.where((item) => seen.add(item.viewkey));
-      setState(() {
-        _page = result.page;
-        _hasMore = result.hasMore && result.videos.isNotEmpty;
-        _videos.addAll(added);
-      });
+      setState(() => _videos.addAll(videos));
     } catch (error) {
       if (!mounted || id != _loadId) {
         return;
@@ -103,10 +62,7 @@ class _Porn91PageState extends State<Porn91Page> {
       setState(() => _error = error.toString());
     } finally {
       if (mounted && id == _loadId) {
-        setState(() {
-          _loading = false;
-          _loadingMore = false;
-        });
+        setState(() => _loading = false);
       }
     }
   }
@@ -117,13 +73,20 @@ class _Porn91PageState extends State<Porn91Page> {
       showAppSnack(context, '已经在下载列表中');
       return;
     }
+    if (await app.porn91.hasDownloaded(video)) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnack(context, '已经下载过');
+      return;
+    }
     showQuickSnack(context, '已加入下载：${video.title}');
     unawaited(
       app.downloadPorn91(video).then((task) {
         if (!mounted || !task.alreadyDownloaded) {
           return;
         }
-        showAppSnack(context, '已经在下载列表中');
+        showAppSnack(context, '已经下载过');
       }).catchError((Object error) {
         if (!mounted) {
           return;
@@ -146,7 +109,13 @@ class _Porn91PageState extends State<Porn91Page> {
       if (app.findExistingDownload(video.pageUrl) != null) {
         continue;
       }
+      if (await app.porn91.hasDownloaded(video)) {
+        continue;
+      }
       batch.add(video);
+    }
+    if (!mounted) {
+      return;
     }
     if (batch.isEmpty) {
       showQuickSnack(context, '没有可下载的视频');
@@ -154,14 +123,21 @@ class _Porn91PageState extends State<Porn91Page> {
     }
     setState(() => _downloadingPopular = true);
     var done = 0;
+    var skipped = 0;
     try {
       showQuickSnack(context, '开始下载 ${batch.length} 个视频');
       for (final video in batch) {
         if (!mounted) {
           return;
         }
-        await app.downloadPorn91(video);
-        done += 1;
+        final task = await app.downloadPorn91(video);
+        if (task.alreadyDownloaded) {
+          skipped += 1;
+          continue;
+        }
+        if (task.status == TaskStatus.done) {
+          done += 1;
+        }
       }
     } finally {
       if (mounted) {
@@ -171,7 +147,14 @@ class _Porn91PageState extends State<Porn91Page> {
     if (!mounted) {
       return;
     }
-    showQuickSnack(context, '已下载 $done 个视频');
+    if (skipped > 0 && done == 0) {
+      showQuickSnack(context, '这些视频都已经下载过');
+      return;
+    }
+    showQuickSnack(
+      context,
+      skipped > 0 ? '已下载 $done 个视频，跳过 $skipped 个' : '已下载 $done 个视频',
+    );
   }
 
   int _columns(BuildContext context) {
@@ -188,7 +171,7 @@ class _Porn91PageState extends State<Porn91Page> {
       children: [
         _buildBody(),
         MediaHubFabs(
-          onRefresh: () => _load(reset: true),
+          onRefresh: _load,
           refreshBusy: _loading,
           onDownload: _downloadPopular,
           downloadBusy: _downloadingPopular,
@@ -217,7 +200,6 @@ class _Porn91PageState extends State<Porn91Page> {
     }
     final columns = _columns(context);
     return CustomScrollView(
-      controller: _scroll,
       slivers: [
         SliverPadding(
           padding: AppLayout.mediaHubPadding(context),
@@ -240,19 +222,6 @@ class _Porn91PageState extends State<Porn91Page> {
             ),
           ),
         ),
-        if (_loadingMore || _loading)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(0, 4.h, 0, 16.h),
-              child: Center(
-                child: SizedBox(
-                  width: 20.w,
-                  height: 20.w,
-                  child: CircularProgressIndicator(strokeWidth: 2.w),
-                ),
-              ),
-            ),
-          ),
       ],
     );
   }

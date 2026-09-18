@@ -371,6 +371,8 @@ class IoHelpers {
     return '${time.year}-${two(time.month)}-${two(time.day)}';
   }
 
+  static const monthlyDownloadFolder = '每月最佳';
+
   static String mediaKindFolder({required bool isVideo}) {
     return isVideo ? '视频' : '图片';
   }
@@ -516,6 +518,10 @@ class IoHelpers {
     return ensureDownloadDir('$downloadDir/$cat/$day/$kind');
   }
 
+  static Future<Directory> ensureMonthlyDownloadDir(String downloadDir) {
+    return ensureDownloadDir('$downloadDir/$monthlyDownloadFolder');
+  }
+
   static final _dateFolder = RegExp(r'^\d{4}-\d{2}-\d{2}$');
 
   static bool _isKindFolder(String name) => name == '视频' || name == '图片';
@@ -532,7 +538,10 @@ class IoHelpers {
       if (parts.isNotEmpty && parts.first.toLowerCase() == 'mediadownloader') {
         parts = parts.skip(1).toList();
       }
-      if (parts.length >= 4 &&
+      if (parts.isNotEmpty && parts.first == monthlyDownloadFolder) {
+        category = monthlyDownloadFolder;
+        mediaKind = '视频';
+      } else if (parts.length >= 4 &&
           _dateFolder.hasMatch(parts[1]) &&
           _isKindFolder(parts[2])) {
         category = parts[0];

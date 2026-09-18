@@ -69,6 +69,10 @@ class Porn91Service {
   Porn91Service(this.settings);
   final AppSettings settings;
   final Map<String, String> _cookies = <String, String>{'language': 'cn_CN'};
+  final Set<String> _downloadedTitles = <String>{};
+  final Set<String> _downloadedKeys = <String>{};
+  final List<String> _savedTitles = <String>[];
+  bool _logLoaded = false;
 
   static const host = 'https://91porn.com';
   static const userAgent =
@@ -77,6 +81,10 @@ class Porn91Service {
     'User-Agent': userAgent,
     'Referer': '$host/',
   };
+  static const downloadedLogFile = 'downloaded.json';
+  static final _stampSuffix = RegExp(
+    r'_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:_\d+)?$',
+  );
 
   Future<Porn91PageResult> fetchIndex({int page = 1}) async {
     final index = page < 1 ? 1 : page;
@@ -94,6 +102,33 @@ class Porn91Service {
         (RegExp('page=${index + 1}\\b', caseSensitive: false).hasMatch(html) ||
             videos.length >= 12);
     return Porn91PageResult(videos: videos, page: index, hasMore: hasMore);
+  }
+
+  Future<List<Porn91Video>> fetchTopVideos({int pages = 2}) async {
+    final limit = pages < 1 ? 1 : pages;
+    final videos = <Porn91Video>[];
+    final seen = <String>{};
+    Object? lastError;
+    for (var page = 1; page <= limit; page++) {
+      try {
+        final result = await fetchIndex(page: page);
+        for (final item in result.videos) {
+          if (seen.add(item.viewkey)) {
+            videos.add(item);
+          }
+        }
+        if (result.videos.isEmpty || !result.hasMore) {
+          break;
+        }
+      } catch (error) {
+        lastError = error;
+        break;
+      }
+    }
+    if (videos.isEmpty && lastError != null) {
+      throw lastError;
+    }
+    return videos;
   }
 
   Future<String> resolveVideoUrl(Porn91Video video) async {
@@ -152,6 +187,154 @@ class Porn91Service {
       throw error;
     }
     throw Porn91Exception('视频下载失败，请确认 VPN/代理已开启。');
+  }
+
+  Future<bool> hasDownloaded(Porn91Video video) async {
+    await _ensureDownloadedLog();
+    final key = video.viewkey.trim().toLowerCase();
+    if (key.isNotEmpty && _downloadedKeys.contains(key)) {
+      return true;
+    }
+    return _hasTitle(recordedTitle(video));
+  }
+
+  Future<void> markDownloaded(Porn91Video video) async {
+    await _ensureDownloadedLog();
+    var changed = _addKey(video.viewkey);
+    if (_addTitle(recordedTitle(video))) {
+      changed = true;
+    }
+    if (changed) {
+      await _saveDownloadedLog();
+    }
+  }
+
+  String recordedTitle(Porn91Video video) {
+    final title = video.title.trim();
+    return title.isEmpty ? video.viewkey.trim() : title;
+  }
+
+  File _downloadedLogFile() {
+    return File(
+      '${settings.downloadDir}/${IoHelpers.monthlyDownloadFolder}/$downloadedLogFile',
+    );
+  }
+
+  Future<void> _ensureDownloadedLog() async {
+    if (_logLoaded) {
+      return;
+    }
+    _logLoaded = true;
+    final file = _downloadedLogFile();
+    if (await file.exists()) {
+      try {
+        final raw = jsonDecode(await file.readAsString());
+        if (raw is List) {
+          for (final item in raw) {
+            _addTitle('$item');
+          }
+        } else if (raw is Map) {
+          final titles = raw['titles'];
+          if (titles is List) {
+            for (final item in titles) {
+              _addTitle('$item');
+            }
+          }
+          final keys = raw['viewkeys'];
+          if (keys is List) {
+            for (final item in keys) {
+              _addKey('$item');
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    if (await _importExistingFiles()) {
+      await _saveDownloadedLog();
+    }
+  }
+
+  Future<bool> _importExistingFiles() async {
+    final dir = Directory(
+      '${settings.downloadDir}/${IoHelpers.monthlyDownloadFolder}',
+    );
+    if (!await dir.exists()) {
+      return false;
+    }
+    var changed = false;
+    await for (final entity in dir.list(followLinks: false)) {
+      if (entity is! File) {
+        continue;
+      }
+      final name = entity.uri.pathSegments.isEmpty
+          ? entity.path.split(RegExp(r'[\\/]')).last
+          : entity.uri.pathSegments.last;
+      if (name == downloadedLogFile || name.startsWith('.')) {
+        continue;
+      }
+      final title = _titleFromFileName(name);
+      if (title != null && _addTitle(title)) {
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  Future<void> _saveDownloadedLog() async {
+    final file = _downloadedLogFile();
+    await file.parent.create(recursive: true);
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(<String, Object>{
+        'titles': _savedTitles,
+        'viewkeys': _downloadedKeys.toList(),
+      }),
+    );
+  }
+
+  bool _hasTitle(String title) {
+    final key = _titleKey(title);
+    if (key.isEmpty) {
+      return false;
+    }
+    if (_downloadedTitles.contains(key)) {
+      return true;
+    }
+    if (key.length > 72) {
+      return _downloadedTitles.contains(key.substring(0, 72).trim());
+    }
+    return false;
+  }
+
+  bool _addTitle(String title) {
+    final raw = title.trim();
+    final key = _titleKey(raw);
+    if (key.isEmpty || !_downloadedTitles.add(key)) {
+      return false;
+    }
+    _savedTitles.add(raw);
+    if (key.length > 72) {
+      _downloadedTitles.add(key.substring(0, 72).trim());
+    }
+    return true;
+  }
+
+  bool _addKey(String viewkey) {
+    final key = viewkey.trim().toLowerCase();
+    return key.isNotEmpty && _downloadedKeys.add(key);
+  }
+
+  String _titleKey(String title) {
+    return title.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+  }
+
+  String? _titleFromFileName(String name) {
+    final base = name.replaceFirst(RegExp(r'\.[^.]+$'), '');
+    final stripped = base.replaceFirst(_stampSuffix, '');
+    final title = stripped.replaceAll(RegExp(r'_+$'), '').trim();
+    if (title.isEmpty) {
+      return null;
+    }
+    return title;
   }
 
   Future<List<String>> _resolveDownloadUrls(Porn91Video video) async {

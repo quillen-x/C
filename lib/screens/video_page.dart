@@ -133,8 +133,16 @@ class _VideoPageState extends State<VideoPage> {
   }) {
     final app = AppScope.of(context);
     final videos = <_FollowedVideo>[];
-    for (final post in posts) {
+    for (final raw in posts) {
+      var post = raw;
       final account = accountMap[post.username.toLowerCase()];
+      if (account != null &&
+          (post.avatarUrl.isEmpty || post.authorName.isEmpty)) {
+        post = post.copyWith(
+          avatarUrl: post.avatarUrl.isNotEmpty ? post.avatarUrl : account.avatarUrl,
+          authorName: post.authorName.isNotEmpty ? post.authorName : account.name,
+        );
+      }
       for (var index = 0; index < post.media.length; index++) {
         final media = post.media[index];
         if (!app.allowsVideoTabMedia(account, media)) {
@@ -380,48 +388,97 @@ class _VideoPageState extends State<VideoPage> {
         ),
       );
     }
-    final columns = _columns(context);
     return _wrapPhone(
       empty: false,
-      CustomScrollView(
+      _VideoWaterfall(
+        videos: _videos,
         controller: _scroll,
-        slivers: [
-          SliverPadding(
-            padding: AppLayout.mediaHubPadding(context),
-            sliver: SliverGrid(
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: columns,
-                mainAxisSpacing: 10.h,
-                crossAxisSpacing: 10.w,
-                childAspectRatio: 0.72,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  return _VideoTile(
-                    item: _videos[index],
-                    onDownload: () => _download(_videos[index]),
-                    onOpenProfile: () => _openProfile(_videos[index].post.username),
-                  );
-                },
-                childCount: _videos.length,
-              ),
+        columns: _columns(context),
+        loadingMore: _loading,
+        onDownload: _download,
+        onOpenProfile: _openProfile,
+      ),
+    );
+  }
+}
+
+class _VideoWaterfall extends StatelessWidget {
+  const _VideoWaterfall({
+    required this.videos,
+    required this.controller,
+    required this.columns,
+    required this.onDownload,
+    required this.onOpenProfile,
+    this.loadingMore = false,
+  });
+
+  final List<_FollowedVideo> videos;
+  final ScrollController controller;
+  final int columns;
+  final ValueChanged<_FollowedVideo> onDownload;
+  final ValueChanged<String> onOpenProfile;
+  final bool loadingMore;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = columns < 1 ? 1 : columns;
+    final buckets = List<List<_FollowedVideo>>.generate(count, (_) => <_FollowedVideo>[]);
+    final heights = List<double>.filled(count, 0);
+    for (final video in videos) {
+      var shortest = 0;
+      for (var i = 1; i < count; i++) {
+        if (heights[i] < heights[shortest]) {
+          shortest = i;
+        }
+      }
+      buckets[shortest].add(video);
+      heights[shortest] += 1 / _coverRatio(video.media);
+    }
+    return CustomScrollView(
+      controller: controller,
+      slivers: [
+        SliverPadding(
+          padding: AppLayout.mediaHubPadding(context),
+          sliver: SliverToBoxAdapter(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var c = 0; c < count; c++) ...[
+                  if (c > 0) SizedBox(width: 8.w),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        for (final video in buckets[c])
+                          Padding(
+                            padding: EdgeInsets.only(bottom: 8.h),
+                            child: _VideoTile(
+                              item: video,
+                              onDownload: () => onDownload(video),
+                              onOpenProfile: () => onOpenProfile(video.post.username),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
-          if (_loading)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(0, 4.h, 0, 16.h),
-                child: Center(
-                  child: SizedBox(
-                    width: 20.w,
-                    height: 20.w,
-                    child: CircularProgressIndicator(strokeWidth: 2.w),
-                  ),
+        ),
+        if (loadingMore)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(0, 4.h, 0, 16.h),
+              child: Center(
+                child: SizedBox(
+                  width: 20.w,
+                  height: 20.w,
+                  child: CircularProgressIndicator(strokeWidth: 2.w),
                 ),
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
@@ -438,6 +495,20 @@ class _FollowedVideo {
   final int index;
 }
 
+double _coverRatio(XMedia media) {
+  if (media.width > 0 && media.height > 0) {
+    final ratio = media.width / media.height;
+    if (ratio < 0.45) {
+      return 0.45;
+    }
+    if (ratio > 1.8) {
+      return 1.8;
+    }
+    return ratio;
+  }
+  return 0.85;
+}
+
 class _VideoTile extends StatelessWidget {
   const _VideoTile({
     required this.item,
@@ -452,146 +523,162 @@ class _VideoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = item.media.listUrl;
+    final name = item.post.displayName.isEmpty
+        ? '@${item.post.username}'
+        : item.post.displayName;
     return Material(
       color: AppColors.surfaceAlt,
       borderRadius: BorderRadius.circular(12.w),
       clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Positioned.fill(
-            child: InkWell(
-              onTap: () => showPostMedia(
-                context,
-                item.post.media,
-                item.index,
-                username: item.post.username,
-                displayName: item.post.displayName,
-                text: item.post.displayText,
-              ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ColoredBox(
-                    color: AppColors.surface,
-                    child: imageUrl.isEmpty
-                        ? Icon(Icons.movie_outlined, size: 36.w, color: AppColors.textMuted)
-                        : AppNetworkImage(
-                            url: imageUrl,
-                            fit: BoxFit.cover,
-                            error: Center(
-                              child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted, size: 32.w),
-                            ),
-                          ),
-                  ),
-                  const ColoredBox(color: Color(0x33000000)),
-                  Center(
-                    child: Icon(
-                      item.media.kind == XMediaKind.gif
-                          ? Icons.gif_box_outlined
-                          : Icons.play_circle_fill,
-                      size: 42.w,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            top: 8.h,
-            right: 8.w,
-            child: Material(
-              color: const Color(0xCC000000),
-              borderRadius: BorderRadius.circular(999.w),
+      child: AspectRatio(
+        aspectRatio: _coverRatio(item.media),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned.fill(
               child: InkWell(
-                onTap: onDownload,
-                borderRadius: BorderRadius.circular(999.w),
-                child: Padding(
-                  padding: EdgeInsets.all(6.w),
-                  child: Icon(Icons.download_rounded, size: 16.w, color: Colors.white),
+                onTap: () => showPostMedia(
+                  context,
+                  item.post.media,
+                  item.index,
+                  username: item.post.username,
+                  displayName: item.post.displayName,
+                  text: item.post.displayText,
                 ),
-              ),
-            ),
-          ),
-          if (item.media.durationLabel.isNotEmpty || item.media.kind == XMediaKind.gif)
-            Positioned(
-              right: 8.w,
-              bottom: 36.h,
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
-                decoration: BoxDecoration(
-                  color: const Color(0xCC000000),
-                  borderRadius: BorderRadius.circular(6.w),
-                ),
-                child: Text(
-                  item.media.kind == XMediaKind.gif && item.media.durationLabel.isEmpty
-                      ? 'GIF'
-                      : item.media.durationLabel,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: DecoratedBox(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: <Color>[Color(0x00000000), Color(0xCC000000)],
-                ),
-              ),
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(10.w, 18.h, 10.w, 10.h),
-                child: Row(
+                child: Stack(
+                  fit: StackFit.expand,
                   children: [
-                    Expanded(
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        child: GestureDetector(
-                          onTap: onOpenProfile,
-                          behavior: HitTestBehavior.opaque,
-                          child: Text(
-                            item.post.displayName.isEmpty
-                                ? '@${item.post.username}'
-                                : item.post.displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12.sp,
-                              fontWeight: FontWeight.w700,
+                    ColoredBox(
+                      color: AppColors.surface,
+                      child: imageUrl.isEmpty
+                          ? Icon(Icons.movie_outlined, size: 36.w, color: AppColors.textMuted)
+                          : AppNetworkImage(
+                              url: imageUrl,
+                              fit: BoxFit.cover,
+                              error: Center(
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  color: AppColors.textMuted,
+                                  size: 32.w,
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
+                    ),
+                    const ColoredBox(color: Color(0x33000000)),
+                    Center(
+                      child: Icon(
+                        item.media.kind == XMediaKind.gif
+                            ? Icons.gif_box_outlined
+                            : Icons.play_circle_fill,
+                        size: 42.w,
+                        color: Colors.white,
                       ),
                     ),
-                    if (item.post.likes > 0) ...[
-                      SizedBox(width: 8.w),
-                      Icon(Icons.favorite_border, size: 13.sp, color: Colors.white),
-                      SizedBox(width: 4.w),
-                      Text(
-                        formatCount(item.post.likes),
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 11.sp,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
             ),
-          ),
-        ],
+            Positioned(
+              top: 8.h,
+              right: 8.w,
+              child: Material(
+                color: const Color(0xCC000000),
+                borderRadius: BorderRadius.circular(999.w),
+                child: InkWell(
+                  onTap: onDownload,
+                  borderRadius: BorderRadius.circular(999.w),
+                  child: Padding(
+                    padding: EdgeInsets.all(6.w),
+                    child: Icon(Icons.download_rounded, size: 16.w, color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+            if (item.media.durationLabel.isNotEmpty || item.media.kind == XMediaKind.gif)
+              Positioned(
+                right: 8.w,
+                bottom: 36.h,
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
+                  decoration: BoxDecoration(
+                    color: const Color(0xCC000000),
+                    borderRadius: BorderRadius.circular(6.w),
+                  ),
+                  child: Text(
+                    item.media.kind == XMediaKind.gif && item.media.durationLabel.isEmpty
+                        ? 'GIF'
+                        : item.media.durationLabel,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[Color(0x00000000), Color(0xCC000000)],
+                  ),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(10.w, 18.h, 10.w, 10.h),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: onOpenProfile,
+                            behavior: HitTestBehavior.opaque,
+                            child: Row(
+                              children: [
+                                XAvatar(url: item.post.avatarUrl, size: 18),
+                                SizedBox(width: 6.w),
+                                Expanded(
+                                  child: Text(
+                                    name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12.sp,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (item.post.likes > 0) ...[
+                        SizedBox(width: 8.w),
+                        Icon(Icons.favorite_border, size: 13.sp, color: Colors.white),
+                        SizedBox(width: 4.w),
+                        Text(
+                          formatCount(item.post.likes),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11.sp,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
