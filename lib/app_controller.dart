@@ -16,6 +16,7 @@ class AppController extends ChangeNotifier {
   static const sexVideoMinDurationSeconds = 120;
   static const sexVideoMaxDurationSeconds = 1800;
   static const monthlyBestDays = <int>{1, 10, 20};
+  static const scheduledJob = bool.fromEnvironment('SCHEDULED_JOB');
 
   AppSettings settings = AppSettings();
   final List<DownloadTask> tasks = <DownloadTask>[];
@@ -23,12 +24,6 @@ class AppController extends ChangeNotifier {
   bool ready = false;
   String? loadError;
   bool _scheduledRunning = false;
-  bool _scheduledJob = false;
-
-  static File get _scheduledJobFlag {
-    final home = Platform.environment['HOME'] ?? IoHelpers.homeDir;
-    return File('$home/.media_downloader_scheduled_job');
-  }
 
   XTrendsService get xTrends => XTrendsService(settings);
   XFollowingService get xFollowingService => XFollowingService(settings);
@@ -42,7 +37,6 @@ class AppController extends ChangeNotifier {
       .length;
 
   Future<void> init() async {
-    _scheduledJob = _consumeScheduledJobFlag();
     try {
       await IoHelpers.init();
       settings = await IoHelpers.loadSettings();
@@ -57,35 +51,31 @@ class AppController extends ChangeNotifier {
       notifyListeners();
     }
     if (loadError == null) {
-      await runScheduledDownloads();
-    }
-    if (_scheduledJob) {
-      await _waitUntilDownloadsIdle();
-      exit(0);
+      if (scheduledJob) {
+        await runScheduledDownloads();
+        await _waitForDownloadIdle();
+        exit(0);
+      }
+      runScheduledDownloads();
+    } else if (scheduledJob) {
+      exit(1);
     }
   }
 
-  bool _consumeScheduledJobFlag() {
-    final file = _scheduledJobFlag;
-    if (!file.existsSync()) {
-      return false;
-    }
-    try {
-      file.deleteSync();
-    } catch (_) {}
-    return true;
-  }
-
-  Future<void> _waitUntilDownloadsIdle() async {
+  Future<void> _waitForDownloadIdle() async {
     final deadline = DateTime.now().add(const Duration(hours: 6));
     while (DateTime.now().isBefore(deadline)) {
-      if (activeCount <= 0 && !_scheduledRunning) {
-        await Future<void>.delayed(const Duration(seconds: 2));
-        if (activeCount <= 0 && !_scheduledRunning) {
+      if (!_scheduledRunning &&
+          _startingDownloads.isEmpty &&
+          activeCount == 0) {
+        await Future<void>.delayed(const Duration(seconds: 3));
+        if (!_scheduledRunning &&
+            _startingDownloads.isEmpty &&
+            activeCount == 0) {
           return;
         }
       }
-      await Future<void>.delayed(const Duration(seconds: 3));
+      await Future<void>.delayed(const Duration(seconds: 2));
     }
   }
 
